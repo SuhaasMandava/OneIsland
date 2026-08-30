@@ -46,6 +46,14 @@ const GRID_DOWN_SEVERITIES = ["warning", "severe"];
 const GRID_DOWN_BACKUP_HOURS = 3;
 const GRID_STABLE_HOURS = 30;
 
+// Independent (solar/battery) households recharge from the sun — heavy
+// cloud cover during a storm means panels aren't topping batteries back
+// up as fast as usual, so a fully overcast sky cuts their remaining
+// backup hours by up to this fraction. This is the one place live
+// environmental data (Open-Meteo's cloud_cover, see weather.js) feeds
+// directly into the power forecast, not just the overall severity level.
+const SOLAR_CLOUD_PENALTY_MAX = 0.3;
+
 // Thresholds (in forecast hours-remaining) that define each status.
 // These bucket boundaries are the "prediction": how soon until a
 // household actually runs out.
@@ -100,8 +108,11 @@ function formatResourceAmount(resourceKey, hours) {
  *     salt/debris contamination -> cut usable water in half.
  *  c) Grid-tied power + storm at Warning/Severe -> grid assumed down ->
  *     cap power hours at a small phone/device battery buffer.
+ *  d) Independent (solar/battery) power + cloudy skies -> panels recharge
+ *     batteries slower -> cut remaining backup hours proportionally to
+ *     live cloud cover.
  */
-function predictHours(resident, resourceKey, severity) {
+function predictHours(resident, resourceKey, severity, weather) {
   const baseHours = resident.resources[resourceKey].hours;
   const multiplier = SEVERITY_INFO[severity].consumptionMultiplier;
 
@@ -121,6 +132,10 @@ function predictHours(resident, resourceKey, severity) {
   }
 
   let hours = baseHours / multiplier;
+
+  if (resourceKey === "power" && resident.powerSource === "independent" && weather && weather.cloudCoverPct != null) {
+    hours *= 1 - (clamp(weather.cloudCoverPct, 0, 100) / 100) * SOLAR_CLOUD_PENALTY_MAX;
+  }
 
   if (
     resourceKey === "water" &&
@@ -186,14 +201,15 @@ function clamp(value, min, max) {
 
 /**
  * Runs steps 1-3 for every resident and every resource, for a given storm
- * severity. Returns a flat array of forecast rows — this is the "AI
- * prediction" output that feeds the matching step.
+ * severity and (optionally) the live weather reading driving it. Returns a
+ * flat array of forecast rows — this is the "AI prediction" output that
+ * feeds the matching step.
  */
-function predictConditions(residents, severity) {
+function predictConditions(residents, severity, weather) {
   const rows = [];
   residents.forEach(resident => {
     RESOURCE_KEYS.forEach(resourceKey => {
-      const hours = predictHours(resident, resourceKey, severity);
+      const hours = predictHours(resident, resourceKey, severity, weather);
       const status = classify(hours);
       const priority = scorePriority(resident, resourceKey, hours);
       rows.push({

@@ -16,7 +16,7 @@
 async function fetchLiveWeather() {
   const url =
     `https://api.open-meteo.com/v1/forecast?latitude=${ISLAND.lat}&longitude=${ISLAND.lon}` +
-    `&current=temperature_2m,wind_speed_10m,wind_gusts_10m,precipitation,weather_code` +
+    `&current=temperature_2m,wind_speed_10m,wind_gusts_10m,precipitation,weather_code,cloud_cover` +
     `&wind_speed_unit=mph&temperature_unit=fahrenheit&precipitation_unit=inch`;
 
   const response = await fetch(url, { signal: AbortSignal.timeout(6000) });
@@ -32,6 +32,7 @@ async function fetchLiveWeather() {
     gustMph: current.wind_gusts_10m,
     precipIn: current.precipitation,
     weatherCode: current.weather_code,
+    cloudCoverPct: current.cloud_cover,
     description: describeWeatherCode(current.weather_code),
     severity: deriveSeverityFromWind(current.wind_gusts_10m)
   };
@@ -77,10 +78,10 @@ function describeWeatherCode(code) {
  */
 function simulatedWeatherFor(severity) {
   const presets = {
-    calm:    { tempF: 84, windMph: 9,  gustMph: 14, precipIn: 0.0, description: "Clear sky" },
-    watch:   { tempF: 81, windMph: 22, gustMph: 30, precipIn: 0.3, description: "Rain showers, tropical cyclone watch issued" },
-    warning: { tempF: 77, windMph: 38, gustMph: 52, precipIn: 1.1, description: "Tropical cyclone warning in effect" },
-    severe:  { tempF: 73, windMph: 65, gustMph: 88, precipIn: 3.4, description: "Cyclone-force winds — severe storm" }
+    calm:    { tempF: 84, windMph: 9,  gustMph: 14, precipIn: 0.0, cloudCoverPct: 10, description: "Clear sky" },
+    watch:   { tempF: 81, windMph: 22, gustMph: 30, precipIn: 0.3, cloudCoverPct: 55, description: "Rain showers, tropical cyclone watch issued" },
+    warning: { tempF: 77, windMph: 38, gustMph: 52, precipIn: 1.1, cloudCoverPct: 80, description: "Tropical cyclone warning in effect" },
+    severe:  { tempF: 73, windMph: 65, gustMph: 88, precipIn: 3.4, cloudCoverPct: 95, description: "Cyclone-force winds — severe storm" }
   };
   return { source: "simulated", severity, ...presets[severity] };
 }

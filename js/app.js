@@ -353,7 +353,7 @@ function capitalize(str) {
 
 /** Runs the engine for currentSeverity and re-renders every screen. */
 function recompute({ setStep }) {
-  currentForecast = predictConditions(RESIDENTS, currentSeverity);
+  currentForecast = predictConditions(RESIDENTS, currentSeverity, currentWeather);
   currentMatchResult = runMatching(currentForecast);
 
   renderTopBar();
