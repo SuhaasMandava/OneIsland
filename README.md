@@ -156,7 +156,5 @@ This is a hackathon prototype, not a production emergency-management system, and
 
 ## Team / Credits
 
-<!-- TODO: add team member names -->
-- 
-- 
-- 
+- Palash Jakhotia
+- Suhaas Mandava
