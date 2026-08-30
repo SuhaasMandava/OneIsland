@@ -281,27 +281,31 @@ section + section, .block + .block { margin-top: 16px; }
 .hero-source .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--balanced); }
 .hero-source.simulated .dot { background: var(--brass); }
 
-.gauge-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
-.gauge {
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius-sm);
-  padding: 8px 6px;
-  text-align: center;
-  background: var(--panel);
-}
-.gauge .g-value { font-size: 1rem; font-weight: 600; }
-.gauge .g-label { font-size: 0.6rem; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 2px; }
+.console-summary { font-size: 0.78rem; color: var(--ink-dim); padding: 2px 2px 4px; }
 
-.readout-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-.readout {
-  border: 1px solid var(--hairline);
-  border-top: 2px solid var(--readout-accent, var(--brass));
-  border-radius: var(--radius-sm);
-  background: var(--panel);
-  padding: 10px 12px;
+.recs-list { display: flex; flex-direction: column; gap: 10px; }
+
+.rec-card {
+  border: 1px solid var(--brass-dim);
+  border-radius: var(--radius);
+  background: linear-gradient(180deg, rgba(18,36,185,0.06), transparent 40%), var(--panel);
+  padding: 12px 14px;
 }
-.readout .r-value { font-size: 1.6rem; font-weight: 600; line-height: 1; }
-.readout .r-label { font-size: 0.66rem; color: var(--ink-dim); text-transform: uppercase; letter-spacing: 0.05em; margin-top: 5px; }
+.rec-card .rec-question { font-size: 0.86rem; margin-top: 6px; line-height: 1.35; }
+.rec-card .rec-question strong { font-weight: 700; }
+.rec-actions { display: flex; gap: 8px; margin-top: 10px; }
+.rec-btn {
+  flex: 1;
+  border-radius: var(--radius-sm);
+  padding: 8px 10px;
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  border: 1px solid var(--hairline);
+  background: var(--panel);
+}
+.rec-btn-accept { background: var(--brass); color: #fff; border-color: var(--brass); }
+.rec-btn-dismiss { color: var(--ink-dim); }
 
 .feature-ticket {
   border: 1px solid var(--brass-dim);

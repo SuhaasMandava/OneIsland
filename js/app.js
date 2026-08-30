@@ -28,6 +28,7 @@ let simulationRunning = false;
 let activeTab = "console";
 let selectedZone = null;
 let decisionLogLines = [];
+let handledMatchKeys = new Set(); // recommendations the user has already shared/dismissed this scenario
 
 document.addEventListener("DOMContentLoaded", init);
 
@@ -416,44 +417,67 @@ function renderConsole() {
   source.className = `hero-source ${w.source === "live" ? "" : "simulated"}`;
   source.innerHTML = `<span class="dot"></span><span>${w.source === "live" ? "Live · Open-Meteo" : "Simulated scenario"}</span>`;
 
-  document.getElementById("gaugeRow").innerHTML = `
-    <div class="gauge"><div class="g-value mono">${Math.round(w.tempF)}&deg;</div><div class="g-label">Temp</div></div>
-    <div class="gauge"><div class="g-value mono">${Math.round(w.windMph)}</div><div class="g-label">Wind mph</div></div>
-    <div class="gauge"><div class="g-value mono">${Math.round(w.gustMph)}</div><div class="g-label">Gust mph</div></div>
-    <div class="gauge"><div class="g-value mono">${w.precipIn.toFixed(1)}&Prime;</div><div class="g-label">Precip</div></div>
-  `;
-
   const shortages = currentForecast.filter(r => r.status === "CRITICAL" || r.status === "SHORTAGE");
-  const criticalNeedMatches = currentMatchResult.matches.filter(m =>
-    m.receiver.specialNeeds.some(n => n.resource === m.resourceKey)
-  );
+  const unresolvedCount = currentMatchResult.unresolved.length;
 
-  const stats = [
-    { value: shortages.length, label: "Shortages", accent: "var(--brass)" },
-    { value: criticalNeedMatches.length, label: "Critical protected", accent: "var(--critical)" },
-    { value: currentMatchResult.matches.length, label: "Matches made", accent: "var(--balanced)" },
-    { value: currentMatchResult.unresolved.length, label: "Outside aid", accent: "var(--shortage)" }
-  ];
-  document.getElementById("consoleStats").innerHTML = stats.map(s => `
-    <div class="readout" style="--readout-accent:${s.accent}">
-      <div class="r-value mono">${s.value}</div>
-      <div class="r-label">${s.label}</div>
+  const summaryBits = [`${Math.round(w.tempF)}&deg;F, ${w.precipIn.toFixed(1)}&Prime; precip`];
+  summaryBits.push(shortages.length === 1 ? "1 household short on supplies" : `${shortages.length} households short on supplies`);
+  if (unresolvedCount > 0) {
+    summaryBits.push(unresolvedCount === 1 ? "1 need outside aid" : `${unresolvedCount} need outside aid`);
+  }
+  document.getElementById("consoleSummary").innerHTML = summaryBits.join(" &middot; ");
+
+  renderRecommendations();
+  renderLogTail();
+}
+
+function matchKey(m) {
+  return `${m.giver.id}|${m.receiver.id}|${m.resourceKey}`;
+}
+
+const RESOURCE_VERBS = { water: "water", food: "food", power: "power" };
+
+function renderRecommendations() {
+  const recsList = document.getElementById("recsList");
+  const pending = currentMatchResult.matches.filter(m => !handledMatchKeys.has(matchKey(m)));
+
+  if (pending.length === 0) {
+    recsList.innerHTML = currentMatchResult.matches.length
+      ? `<div class="ft-empty">All recommended transfers for this scenario have been handled.</div>`
+      : `<div class="ft-empty">No shortages detected at this severity &mdash; every household is self-sufficient.</div>`;
+    return;
+  }
+
+  recsList.innerHTML = pending.slice(0, 5).map(m => `
+    <div class="rec-card" data-key="${matchKey(m)}">
+      <div class="ft-kicker">Priority ${m.priorityScore} &middot; ${RESOURCE_VERBS[m.resourceKey]}</div>
+      <div class="rec-question">
+        Would you like <strong>${m.giver.name}</strong> to share
+        <strong>${m.amountHours}h of ${m.resourceKey}</strong> with <strong>${m.receiver.name}</strong>?
+      </div>
+      <div class="ft-reason">${m.reasoning}</div>
+      <div class="rec-actions">
+        <button class="rec-btn rec-btn-accept" data-action="accept">Share now</button>
+        <button class="rec-btn rec-btn-dismiss" data-action="dismiss">Not now</button>
+      </div>
     </div>
   `).join("");
 
-  const featureTicket = document.getElementById("featureTicket");
-  const top = currentMatchResult.matches[0];
-  if (top) {
-    featureTicket.innerHTML = `
-      <div class="ft-kicker">Priority ${top.priorityScore} · ${top.resourceKey}</div>
-      <div class="ft-flow"><span>${top.giver.name}</span><span class="ft-arrow">&rarr;</span><span>${top.receiver.name}</span></div>
-      <div class="ft-reason">${top.reasoning}</div>
-    `;
-  } else {
-    featureTicket.innerHTML = `<div class="ft-empty">No shortages detected at this severity &mdash; every household is self-sufficient.</div>`;
-  }
-
-  renderLogTail();
+  recsList.querySelectorAll(".rec-card").forEach(card => {
+    const key = card.dataset.key;
+    const match = currentMatchResult.matches.find(m => matchKey(m) === key);
+    card.querySelectorAll(".rec-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        handledMatchKeys.add(key);
+        if (btn.dataset.action === "accept") {
+          log(`Shared: ${match.giver.name} -> ${match.receiver.name} (${match.amountHours}h ${match.resourceKey}).`);
+        } else {
+          log(`Deferred: ${match.giver.name} -> ${match.receiver.name} recommendation (${match.resourceKey}) not actioned.`);
+        }
+        renderRecommendations();
+      });
+    });
+  });
 }
 
 function renderLogTail() {
@@ -699,6 +723,7 @@ function log(message) {
 
 function clearLog() {
   decisionLogLines = [];
+  handledMatchKeys.clear();
   renderLogTail();
   renderDecisionLog();
 }
