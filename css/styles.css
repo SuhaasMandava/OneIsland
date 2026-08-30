@@ -427,8 +427,20 @@ section + section, .block + .block { margin-top: 16px; }
   padding: 6px;
 }
 .network-frame svg { width: 100%; height: auto; display: block; }
+.zone-node { cursor: pointer; }
 .zone-node text { font-family: 'Public Sans', sans-serif; fill: var(--ink); pointer-events: none; }
 .zone-node .node-count { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+.zone-node .node-bg {
+  transition: transform 0.15s var(--ease), stroke-width 0.15s var(--ease); transform-origin: center; transform-box: fill-box;
+  /* An empty zone's circle has fill="none", so by default only its stroke
+     line is clickable, not the middle — this makes the whole circle area
+     hit-testable regardless of fill, for both node variants. */
+  pointer-events: all;
+}
+.zone-node:hover .node-bg, .zone-node:focus-visible .node-bg { transform: scale(1.06); }
+.zone-node.selected .node-bg { stroke-width: 3.5; transform: scale(1.1); }
+.zone-node:focus-visible { outline: none; }
+.zone-node:focus-visible .node-bg { stroke: var(--reef); stroke-width: 3; }
 .net-link { stroke: var(--hairline-strong); stroke-width: 1.5; fill: none; stroke-dasharray: 1 5; stroke-linecap: round; }
 .net-ring { stroke: rgba(15, 61, 74, 0.09); fill: none; }
 
@@ -439,6 +451,16 @@ section + section, .block + .block { margin-top: 16px; }
 .legend-strip .lg-dot-shortage { background: var(--shortage); }
 .legend-strip .lg-dot-balanced { background: var(--balanced); }
 .legend-strip .lg-dot-surplus { background: var(--surplus); }
+
+.zone-detail { margin-top: 14px; }
+.zone-detail-head { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.zone-detail-head h3 { font-size: 1rem; font-weight: 600; font-family: 'Public Sans', sans-serif; }
+.zd-coastal {
+  font-size: 0.62rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
+  color: var(--surplus); background: rgba(28, 127, 166, 0.12);
+  padding: 2px 7px; border-radius: 999px;
+}
+.zone-detail-body { display: flex; flex-direction: column; gap: 8px; }
 
 .goto-storm {
   display: flex; align-items: center; justify-content: space-between;

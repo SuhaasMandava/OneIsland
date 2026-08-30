@@ -33,6 +33,7 @@ let recentActivity = []; // confirmed transfers, newest first — see logTransfe
 let residentsLoadError = false; // true when fetchResidents() failed — Console shows a retry banner instead of a falsely-reassuring "all clear"
 let weatherLoadError = false; // true when the live Open-Meteo fetch failed/timed out — Console shows a fallback banner distinct from an intentional manual simulation
 let handledMatchKeys = new Set(); // recommendations the user has already shared/dismissed this scenario
+let selectedZone = null; // zone currently expanded on the Zones screen, or null — see renderNetwork()/renderZoneDetail()
 
 /** Races a promise against a timeout so a slow/hanging Supabase request
  *  eventually surfaces as a retry-able error instead of spinning forever. */
@@ -604,9 +605,10 @@ function renderNetwork() {
   });
 
   const nodes = positions.map(({ zone, pos }) => {
+    const selected = selectedZone === zone.id ? " selected" : "";
     if (!zoneHasResidents(zone.id)) {
       return `
-        <g class="zone-node zone-node-empty">
+        <g class="zone-node zone-node-empty${selected}" data-zone="${zone.id}">
           <circle class="node-bg" cx="${pos.x}" cy="${pos.y}" r="28" fill="none" stroke="#82859E" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.6"/>
           <text x="${pos.x}" y="${pos.y + 4}" text-anchor="middle" font-size="9" opacity="0.6">No data</text>
           <text x="${pos.x}" y="${pos.y + 45}" text-anchor="middle" font-size="11" opacity="0.85">${zone.short}</text>
@@ -617,7 +619,7 @@ function renderNetwork() {
     const count = zoneNeedCount(zone.id);
     const color = STATUS_COLOR_HEX[status];
     return `
-      <g class="zone-node">
+      <g class="zone-node${selected}" data-zone="${zone.id}">
         <circle class="node-bg" cx="${pos.x}" cy="${pos.y}" r="28" fill="${color}" fill-opacity="0.22" stroke="${color}" stroke-width="2"/>
         <text class="node-count" x="${pos.x}" y="${pos.y + 5}" text-anchor="middle" font-size="15">${count}</text>
         <text x="${pos.x}" y="${pos.y + 45}" text-anchor="middle" font-size="11" opacity="0.85">${zone.short}</text>
@@ -628,6 +630,21 @@ function renderNetwork() {
   svg.innerHTML = `${rings}${links.join("")}${nodes}
     <text x="${NETWORK_CENTER.x}" y="${NETWORK_CENTER.y - 4}" text-anchor="middle" font-size="9" opacity="0.4" letter-spacing="1" fill="#82859E">${escapeHtml(ISLAND.name.toUpperCase())}</text>`;
 
+  svg.querySelectorAll(".zone-node").forEach(node => {
+    node.setAttribute("tabindex", "0");
+    node.setAttribute("role", "button");
+    const zone = ZONES.find(z => z.id === node.dataset.zone);
+    node.setAttribute("aria-label", `${zone ? zone.name : node.dataset.zone} — view households`);
+    const toggle = () => {
+      selectedZone = selectedZone === node.dataset.zone ? null : node.dataset.zone;
+      renderNetwork();
+    };
+    node.addEventListener("click", toggle);
+    node.addEventListener("keydown", e => {
+      if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggle(); }
+    });
+  });
+
   const emptyZones = ZONES.filter(z => !zoneHasResidents(z.id));
   const emptyNote = document.getElementById("networkEmptyNote");
   emptyNote.classList.toggle("hidden", emptyZones.length === 0);
@@ -636,6 +653,94 @@ function renderNetwork() {
       ? `No residents currently in ${emptyZones[0].name}.`
       : `No residents currently in: ${emptyZones.map(z => z.name).join(", ")}.`;
   }
+
+  renderZoneDetail();
+}
+
+/**
+ * The drill-down panel below the map — a tap on a zone's node shows every
+ * household there and their current per-resource forecast, restoring the
+ * click-to-inspect behavior from before the Zones screen was simplified.
+ * Community-wide by design, same as the map itself (worst-status color and
+ * need count are already visible per zone without tapping); it does NOT
+ * show phone/address — those stay scoped to an actual match (see
+ * isMine()/involvesMe()), not exposed just for being in the same zone.
+ */
+function renderZoneDetail() {
+  const wrap = document.getElementById("zoneDetailWrap");
+  if (!wrap) return;
+
+  if (!selectedZone) {
+    wrap.innerHTML = `<div class="zone-hint">Tap an island above to see its households.</div>`;
+    return;
+  }
+
+  const zone = ZONES.find(z => z.id === selectedZone);
+  const residents = RESIDENTS.filter(r => r.zone === selectedZone);
+
+  if (residents.length === 0) {
+    wrap.innerHTML = `
+      <div class="zone-detail">
+        <div class="zone-detail-head">
+          <h3>${escapeHtml(zone ? zone.name : selectedZone)}</h3>
+          ${zone && zone.coastal ? '<span class="zd-coastal">Coastal</span>' : ""}
+        </div>
+        <div class="zone-hint">No residents currently in this zone.</div>
+      </div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <div class="zone-detail">
+      <div class="zone-detail-head">
+        <h3>${escapeHtml(zone ? zone.name : selectedZone)}</h3>
+        ${zone && zone.coastal ? '<span class="zd-coastal">Coastal</span>' : ""}
+      </div>
+      <div class="zone-detail-body" id="zoneResidentBody"></div>
+    </div>
+  `;
+
+  const body = document.getElementById("zoneResidentBody");
+  residents.forEach(resident => body.appendChild(buildResidentCard(resident)));
+}
+
+function buildResidentCard(resident) {
+  const card = document.createElement("div");
+  card.className = "resident-card";
+
+  const badges = [];
+  resident.specialNeeds.forEach(n => badges.push(`<span class="badge badge-critical-need">${escapeHtml(n.label)}</span>`));
+  if (resident.vulnerableMembers > 0) badges.push(`<span class="badge badge-vulnerable">${resident.vulnerableMembers} vulnerable</span>`);
+  if (resident.shelterRating === "weak") badges.push(`<span class="badge badge-shelter-weak">Weak shelter</span>`);
+
+  const resourceRows = RESOURCE_KEYS.map(key => {
+    const row = currentForecast.find(r => r.resident.id === resident.id && r.resourceKey === key);
+    if (!row) return "";
+    const pct = Math.min(100, Math.round((row.hours / 48) * 100));
+    return `
+      <div class="resource-row">
+        <span class="resource-label">${key}</span>
+        <div class="resource-track"><div class="resource-fill ${row.status}" style="width:${pct}%"></div></div>
+        <span class="resource-value ${row.status}">${formatResourceAmount(key, row.hours)}</span>
+      </div>`;
+  }).join("");
+
+  const photo = resident.photoUrl
+    ? `<img class="resident-photo" src="${resident.photoUrl}" alt="">`
+    : "";
+
+  card.innerHTML = `
+    <div class="resident-card-head">
+      ${photo}
+      <div>
+        <div class="resident-name">${escapeHtml(resident.name)}</div>
+        <div class="resident-meta">${resident.powerSource} power &middot; ${resident.shelterRating} shelter</div>
+      </div>
+    </div>
+    ${badges.length ? `<div class="badge-row">${badges.join("")}</div>` : ""}
+    <div class="resource-rows">${resourceRows}</div>
+  `;
+  return card;
 }
 
 /**
