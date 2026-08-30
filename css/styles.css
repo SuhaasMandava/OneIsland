@@ -318,6 +318,22 @@ section + section, .block + .block { margin-top: 16px; }
   border-radius: 50%;
   background: var(--brass);
 }
+.rec-confirm-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  font-size: 0.82rem;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--hairline);
+}
+.rec-confirm-row:first-of-type { border-top: none; margin-top: 12px; padding-top: 0; }
+.rec-confirm-name { font-weight: 600; }
+.rec-confirm-change { font-variant-numeric: tabular-nums; font-weight: 600; }
+.rec-confirm-change.loss { color: var(--shortage); }
+.rec-confirm-change.gain { color: var(--balanced); }
+
 .rec-actions { display: flex; gap: 8px; margin-top: 14px; }
 .rec-btn {
   flex: 1;

@@ -439,11 +439,18 @@ function matchKey(m) {
 }
 
 const RESOURCE_VERBS = { water: "water", food: "food", power: "power" };
+let confirmingMatchKey = null; // rec card currently showing the before/after confirmation
+
+function residentHours(resident, resourceKey) {
+  const row = currentForecast.find(r => r.resident.id === resident.id && r.resourceKey === resourceKey);
+  return row ? row.hours : 0;
+}
 
 function renderRecommendations() {
   const recsList = document.getElementById("recsList");
 
   if (currentSeverity === "calm") {
+    confirmingMatchKey = null;
     recsList.innerHTML = `<div class="ft-empty">Conditions are calm &mdash; households don't need to trade resources yet. Recommendations appear once a storm watch or worse is in effect.</div>`;
     return;
   }
@@ -457,32 +464,66 @@ function renderRecommendations() {
     return;
   }
 
-  recsList.innerHTML = pending.slice(0, 5).map(m => `
-    <div class="rec-card" data-key="${matchKey(m)}">
-      <div class="ft-kicker">Priority ${m.priorityScore} &middot; ${RESOURCE_VERBS[m.resourceKey]}</div>
-      <div class="rec-question">
-        Share <strong>${m.amountHours}h of ${m.resourceKey}</strong>:
-        <strong>${m.giver.name}</strong> &rarr; <strong>${m.receiver.name}</strong>?
+  recsList.innerHTML = pending.slice(0, 5).map(m => {
+    const key = matchKey(m);
+    if (key === confirmingMatchKey) {
+      const giverBefore = residentHours(m.giver, m.resourceKey);
+      const receiverBefore = residentHours(m.receiver, m.resourceKey);
+      const giverAfter = Math.max(0, Math.round((giverBefore - m.amountHours) * 10) / 10);
+      const receiverAfter = Math.round((receiverBefore + m.amountHours) * 10) / 10;
+      return `
+        <div class="rec-card" data-key="${key}">
+          <div class="ft-kicker">Confirm &middot; ${RESOURCE_VERBS[m.resourceKey]}</div>
+          <div class="rec-question">Confirm this transfer?</div>
+          <div class="rec-confirm-row">
+            <span class="rec-confirm-name">${m.giver.name}</span>
+            <span class="rec-confirm-change loss">${giverBefore}h &rarr; ${giverAfter}h</span>
+          </div>
+          <div class="rec-confirm-row">
+            <span class="rec-confirm-name">${m.receiver.name}</span>
+            <span class="rec-confirm-change gain">${receiverBefore}h &rarr; ${receiverAfter}h</span>
+          </div>
+          <div class="rec-actions">
+            <button class="rec-btn rec-btn-accept" data-action="confirm">Confirm share</button>
+            <button class="rec-btn rec-btn-dismiss" data-action="cancel">Cancel</button>
+          </div>
+        </div>
+      `;
+    }
+    return `
+      <div class="rec-card" data-key="${key}">
+        <div class="ft-kicker">Priority ${m.priorityScore} &middot; ${RESOURCE_VERBS[m.resourceKey]}</div>
+        <div class="rec-question">
+          Share <strong>${m.amountHours}h of ${m.resourceKey}</strong>:
+          <strong>${m.giver.name}</strong> &rarr; <strong>${m.receiver.name}</strong>?
+        </div>
+        <ul class="rec-reasons">
+          ${m.reasoningPoints.map(point => `<li>${point}</li>`).join("")}
+        </ul>
+        <div class="rec-actions">
+          <button class="rec-btn rec-btn-accept" data-action="accept">Share now</button>
+          <button class="rec-btn rec-btn-dismiss" data-action="dismiss">Not now</button>
+        </div>
       </div>
-      <ul class="rec-reasons">
-        ${m.reasoningPoints.map(point => `<li>${point}</li>`).join("")}
-      </ul>
-      <div class="rec-actions">
-        <button class="rec-btn rec-btn-accept" data-action="accept">Share now</button>
-        <button class="rec-btn rec-btn-dismiss" data-action="dismiss">Not now</button>
-      </div>
-    </div>
-  `).join("");
+    `;
+  }).join("");
 
   recsList.querySelectorAll(".rec-card").forEach(card => {
     const key = card.dataset.key;
     const match = currentMatchResult.matches.find(m => matchKey(m) === key);
     card.querySelectorAll(".rec-btn").forEach(btn => {
       btn.addEventListener("click", () => {
-        handledMatchKeys.add(key);
-        if (btn.dataset.action === "accept") {
+        const action = btn.dataset.action;
+        if (action === "accept") {
+          confirmingMatchKey = key;
+        } else if (action === "cancel") {
+          confirmingMatchKey = null;
+        } else if (action === "confirm") {
+          handledMatchKeys.add(key);
+          confirmingMatchKey = null;
           log(`Shared: ${match.giver.name} -> ${match.receiver.name} (${match.amountHours}h ${match.resourceKey}).`);
-        } else {
+        } else if (action === "dismiss") {
+          handledMatchKeys.add(key);
           log(`Deferred: ${match.giver.name} -> ${match.receiver.name} recommendation (${match.resourceKey}) not actioned.`);
         }
         renderRecommendations();
@@ -735,6 +776,7 @@ function log(message) {
 function clearLog() {
   decisionLogLines = [];
   handledMatchKeys.clear();
+  confirmingMatchKey = null;
   renderLogTail();
   renderDecisionLog();
 }
