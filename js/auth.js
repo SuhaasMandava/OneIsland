@@ -3,7 +3,8 @@
  * -------
  * Thin wrapper around Supabase Auth (email + password). Tracks the current
  * user in memory and notifies subscribers (app.js) whenever sign-in state
- * changes, so the header and Profile tab can re-render.
+ * changes, passing along the Supabase event name so the caller can tell a
+ * real sign-in/out from a routine background token refresh.
  */
 
 let currentUser = null;
@@ -13,18 +14,24 @@ function onAuthChange(handler) {
   authChangeHandlers.push(handler);
 }
 
-function notifyAuthChange() {
-  authChangeHandlers.forEach(handler => handler(currentUser));
+function notifyAuthChange(event) {
+  authChangeHandlers.forEach(handler => handler(currentUser, event));
 }
 
-/** Call once on startup. Restores any existing session and starts listening. */
-async function initAuth() {
-  const { data } = await supabaseClient.auth.getSession();
-  currentUser = data.session ? data.session.user : null;
-
-  supabaseClient.auth.onAuthStateChange((_event, session) => {
-    currentUser = session ? session.user : null;
-    notifyAuthChange();
+/**
+ * Call once on startup. Resolves once Supabase reports the initial
+ * session state (event "INITIAL_SESSION" — guaranteed to fire exactly
+ * once right after subscribing), so callers can safely await it and know
+ * currentUser + the first routing decision are both settled.
+ */
+function initAuth() {
+  return new Promise(resolve => {
+    let settled = false;
+    supabaseClient.auth.onAuthStateChange((event, session) => {
+      currentUser = session ? session.user : null;
+      notifyAuthChange(event);
+      if (!settled) { settled = true; resolve(); }
+    });
   });
 }
 

@@ -1,15 +1,25 @@
 /*
  * app.js
  * ------
- * UI wiring for OneIsland. This file owns the DOM: four screens
- * (Console / Zone Network / Storm Mode / Profile) toggled by the bottom
- * tab bar, all reading from the same live state. The actual
- * "intelligence" lives in engine.js — this file calls it and paints the
- * result. Residents come live from Supabase (residents-store.js); auth
- * comes from auth.js.
+ * UI wiring for OneIsland. Owns four top-level app modes — Landing, Auth,
+ * Onboarding, Dashboard — toggled by setAppMode(), plus (inside Dashboard)
+ * the four familiar screens (Console / Zone Network / Storm Mode /
+ * Profile) toggled by the bottom tab bar. The actual "intelligence" lives
+ * in engine.js — this file calls it and paints the result. Residents
+ * come live from Supabase (residents-store.js); auth comes from auth.js;
+ * the guided setup wizard lives in onboarding.js.
+ *
+ * Flow: Landing -> Auth (sign up/log in) -> Onboarding (first-time only)
+ * -> Dashboard. Returning users with a completed profile skip straight
+ * to the Dashboard on login. Editing later happens from the Profile tab,
+ * which re-enters the same onboarding wizard pre-filled.
  */
 
 // ---- Application state ----
+let appMode = "landing";
+let authMode = "signup";
+let myResidentRow = null;
+
 let currentSeverity = "calm";
 let currentWeather = null;
 let currentForecast = [];
@@ -18,22 +28,139 @@ let simulationRunning = false;
 let activeTab = "console";
 let selectedZone = null;
 let decisionLogLines = [];
-let existingPhotoUrl = null; // the signed-in user's current photo, kept if they don't upload a new one
 
 document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
+  wireLanding();
+  wireAuthScreen();
+  wireOnboardingControls();
   wireTabs();
   wireControls();
-  wireAuthForms();
-  populateZoneOptions();
+  wireProfileTab();
 
+  onAuthChange(routeAfterAuthChange);
   await initAuth();
-  onAuthChange(() => {
-    renderAuthStrip();
-    renderProfileTab();
+}
+
+// ------------------------------------------------------------------
+// App-level mode switching (Landing / Auth / Onboarding / Dashboard)
+// ------------------------------------------------------------------
+
+function setAppMode(mode) {
+  appMode = mode;
+  document.querySelectorAll(".app-mode").forEach(el => {
+    el.classList.toggle("active", el.id === `mode-${mode}`);
   });
+}
+
+// ------------------------------------------------------------------
+// Landing
+// ------------------------------------------------------------------
+
+function wireLanding() {
+  document.getElementById("landingGetStartedBtn").addEventListener("click", () => enterAuthMode("signup"));
+  document.getElementById("landingLogInBtn").addEventListener("click", () => enterAuthMode("login"));
+}
+
+// ------------------------------------------------------------------
+// Auth screen (single form, toggles between sign-up and log-in)
+// ------------------------------------------------------------------
+
+function wireAuthScreen() {
+  document.getElementById("authBackBtn").addEventListener("click", () => setAppMode("landing"));
+  document.getElementById("authSwitchModeBtn").addEventListener("click", () => {
+    authMode = authMode === "signup" ? "login" : "signup";
+    updateAuthModeUI();
+  });
+  document.getElementById("authSubmitBtn").addEventListener("click", handleAuthSubmit);
+}
+
+function enterAuthMode(mode) {
+  authMode = mode;
+  updateAuthModeUI();
+  document.getElementById("authError").classList.add("hidden");
+  setAppMode("auth");
+}
+
+function updateAuthModeUI() {
+  document.getElementById("authHeading").textContent = authMode === "signup" ? "Create your account" : "Log in";
+  document.getElementById("authSubmitBtn").textContent = authMode === "signup" ? "Create Account" : "Log In";
+  document.getElementById("authSwitchModeBtn").textContent = authMode === "signup"
+    ? "Already have an account? Log in" : "Need an account? Sign up";
+}
+
+async function handleAuthSubmit() {
+  const email = document.getElementById("authEmail").value.trim();
+  const password = document.getElementById("authPassword").value;
+  const errorEl = document.getElementById("authError");
+  errorEl.classList.add("hidden");
+
+  if (!email || password.length < 6) {
+    errorEl.textContent = "Enter an email and a password of at least 6 characters.";
+    errorEl.classList.remove("hidden");
+    return;
+  }
+
+  const submitBtn = document.getElementById("authSubmitBtn");
+  submitBtn.disabled = true;
+  try {
+    if (authMode === "signup") await signUp(email, password);
+    else await signIn(email, password);
+    // Routing to onboarding/dashboard happens automatically once the
+    // auth state change fires — see routeAfterAuthChange().
+  } catch (err) {
+    errorEl.textContent = err.message || "Something went wrong.";
+    errorEl.classList.remove("hidden");
+  } finally {
+    submitBtn.disabled = false;
+  }
+}
+
+// ------------------------------------------------------------------
+// Auth-driven routing: Landing <-> Onboarding <-> Dashboard
+// ------------------------------------------------------------------
+
+// Only these events should ever change which screen is showing — a
+// background TOKEN_REFRESHED (Supabase does this periodically) must not
+// silently reset someone mid-onboarding.
+const AUTH_ROUTING_EVENTS = ["INITIAL_SESSION", "SIGNED_IN", "SIGNED_OUT"];
+
+async function routeAfterAuthChange(user, event) {
   renderAuthStrip();
+  if (event && !AUTH_ROUTING_EVENTS.includes(event)) return;
+
+  if (!user) {
+    setAppMode("landing");
+    return;
+  }
+
+  let existingRow = null;
+  try {
+    existingRow = await fetchMyResident(user.id);
+  } catch (err) {
+    console.error(err);
+  }
+
+  if (needsOnboarding(existingRow)) {
+    startOnboarding(existingRow);
+  } else {
+    await enterDashboard();
+  }
+}
+
+/** A row with no islands selected yet counts as "not onboarded" — covers
+ *  both a brand-new user (no row at all) and one migrated from an older
+ *  schema version who hasn't redone the (now-required) zones step. */
+function needsOnboarding(row) {
+  return !row || !row.zones || row.zones.length === 0;
+}
+
+/** Single entry point into the main app — called after login-with-existing-
+ *  profile, and again after onboarding finishes. */
+async function enterDashboard() {
+  setAppMode("dashboard");
+  switchTab("console");
 
   try {
     currentWeather = await fetchLiveWeather();
@@ -54,11 +181,11 @@ async function init() {
   }
 
   recompute({ setStep: 0 });
-  renderProfileTab();
+  await renderProfileTab();
 }
 
 // ------------------------------------------------------------------
-// Tab bar
+// Tab bar (inside Dashboard)
 // ------------------------------------------------------------------
 
 function wireTabs() {
@@ -77,7 +204,7 @@ function switchTab(tab) {
 }
 
 // ------------------------------------------------------------------
-// Controls
+// Storm controls
 // ------------------------------------------------------------------
 
 function wireControls() {
@@ -157,155 +284,74 @@ function setButtonsDisabled(disabled) {
 }
 
 // ------------------------------------------------------------------
-// Auth strip (top bar) + Profile screen
+// Auth strip (top bar, Dashboard only)
 // ------------------------------------------------------------------
 
 function renderAuthStrip() {
   const el = document.getElementById("authStrip");
-  if (currentUser) {
-    el.innerHTML = `
-      <span class="as-email">${escapeHtml(currentUser.email)}</span>
-      <button class="as-logout" id="logoutBtn" type="button">Log out</button>
-    `;
-    document.getElementById("logoutBtn").addEventListener("click", async () => {
-      try { await signOut(); } catch (err) { console.error(err); }
-    });
-  } else {
-    el.innerHTML = `<button class="as-signin" id="signInLinkBtn" type="button">Sign in to add your resources &rarr;</button>`;
-    document.getElementById("signInLinkBtn").addEventListener("click", () => switchTab("profile"));
-  }
-}
-
-function populateZoneOptions() {
-  const select = document.getElementById("fZone");
-  if (select.options.length > 0) return; // already populated
-  select.innerHTML = ZONES.map(z => `<option value="${z.id}">${z.name}</option>`).join("");
-}
-
-/** Shows the sign-up/log-in form when logged out, or the "my listing" form when logged in. */
-async function renderProfileTab() {
-  const authForms = document.getElementById("authForms");
-  const listingForm = document.getElementById("myListingForm");
-  const note = document.getElementById("authStatusNote");
-
-  if (!currentUser) {
-    authForms.classList.remove("hidden");
-    listingForm.classList.add("hidden");
-    note.textContent = "Sign up or log in to add your household's resource listing.";
-    return;
-  }
-
-  authForms.classList.add("hidden");
-  listingForm.classList.remove("hidden");
-  note.textContent = `Signed in as ${currentUser.email}. This form creates or updates your one resident listing.`;
-
-  try {
-    const existing = await fetchMyResident(currentUser.id);
-    fillListingForm(existing);
-  } catch (err) {
-    console.error(err);
-  }
-}
-
-function fillListingForm(row) {
-  document.getElementById("fName").value = row ? row.name : "";
-  document.getElementById("fZone").value = row ? row.zone : ZONES[0].id;
-  document.getElementById("fWater").value = row ? row.water : 24;
-  document.getElementById("fFood").value = row ? row.food : 24;
-  document.getElementById("fSolar").value = row ? row.solar_power : 0;
-  document.getElementById("fBatteries").value = row ? row.batteries : 0;
-  document.getElementById("fShelter").value = row ? row.shelter : "moderate";
-
-  const criticalBox = document.getElementById("fCritical");
-  const deviceField = document.getElementById("fDevice");
-  criticalBox.checked = row ? row.is_critical : false;
-  deviceField.value = row && row.device_type ? row.device_type : "";
-  deviceField.classList.toggle("hidden", !criticalBox.checked);
-
-  existingPhotoUrl = row ? row.photo_url : null;
-  const preview = document.getElementById("fPhotoPreview");
-  if (existingPhotoUrl) {
-    preview.classList.remove("hidden");
-    preview.innerHTML = `<img src="${existingPhotoUrl}" alt="Current photo">`;
-  } else {
-    preview.classList.add("hidden");
-    preview.innerHTML = "";
-  }
-}
-
-function wireAuthForms() {
-  document.getElementById("fCritical").addEventListener("change", e => {
-    document.getElementById("fDevice").classList.toggle("hidden", !e.target.checked);
+  if (!currentUser) { el.innerHTML = ""; return; }
+  el.innerHTML = `
+    <span class="as-email">${escapeHtml(currentUser.email)}</span>
+    <button class="as-logout" id="logoutBtn" type="button">Log out</button>
+  `;
+  document.getElementById("logoutBtn").addEventListener("click", async () => {
+    try { await signOut(); } catch (err) { console.error(err); }
   });
-
-  document.getElementById("signInBtn").addEventListener("click", () => handleAuthSubmit(signIn));
-  document.getElementById("signUpBtn").addEventListener("click", () => handleAuthSubmit(signUp, true));
-
-  document.getElementById("myListingForm").addEventListener("submit", handleListingSubmit);
 }
 
-async function handleAuthSubmit(authFn, isSignUp) {
-  const email = document.getElementById("authEmail").value.trim();
-  const password = document.getElementById("authPassword").value;
-  const errorEl = document.getElementById("authError");
-  errorEl.classList.add("hidden");
+// ------------------------------------------------------------------
+// Profile tab — read-only summary + "Edit My Profile"
+// ------------------------------------------------------------------
 
-  if (!email || password.length < 6) {
-    errorEl.textContent = "Enter an email and a password of at least 6 characters.";
-    errorEl.classList.remove("hidden");
+function wireProfileTab() {
+  document.getElementById("editProfileBtn").addEventListener("click", () => startOnboarding(myResidentRow));
+}
+
+async function renderProfileTab() {
+  const container = document.getElementById("profileSummary");
+  container.innerHTML = `<p class="onb-hint">Loading your profile&hellip;</p>`;
+
+  try {
+    myResidentRow = await fetchMyResident(currentUser.id);
+  } catch (err) {
+    container.innerHTML = `<p class="onb-hint">Could not load your profile.</p>`;
+    return;
+  }
+  if (!myResidentRow) {
+    container.innerHTML = `<p class="onb-hint">No profile on file yet.</p>`;
     return;
   }
 
-  try {
-    await authFn(email, password);
-    if (isSignUp) {
-      errorEl.classList.remove("hidden");
-      errorEl.textContent = "Account created. If email confirmation is enabled on the project, check your inbox before logging in.";
-    }
-  } catch (err) {
-    errorEl.textContent = err.message || "Something went wrong.";
-    errorEl.classList.remove("hidden");
-  }
+  const zoneNames = (myResidentRow.zones || [])
+    .map(id => (ZONES.find(z => z.id === id) || { name: id }).name)
+    .join(", ") || "—";
+
+  const rows = [
+    ["Household", myResidentRow.name],
+    ["Island(s)", zoneNames],
+    ["People", `${myResidentRow.household_size} (ages ${(myResidentRow.ages || []).join(", ") || "—"})`],
+    ["Solar", Number(myResidentRow.solar_power) > 0 ? `${myResidentRow.solar_power} kWh` : "None"],
+    ["Battery", Number(myResidentRow.batteries) > 0 ? `${myResidentRow.batteries} kWh` : "None"],
+    ["Critical need", myResidentRow.is_critical ? myResidentRow.device_type : "None"],
+    ["Water", `${Math.round((myResidentRow.water / 24) * 10) / 10} days`],
+    ["Food", `${Math.round((myResidentRow.food / 24) * 10) / 10} days`],
+    ["Shelter", capitalize(myResidentRow.shelter)]
+  ];
+
+  const photo = myResidentRow.photo_url
+    ? `<img class="resident-photo profile-photo" src="${myResidentRow.photo_url}" alt="">`
+    : "";
+
+  container.innerHTML = `
+    ${photo}
+    <div class="review-list">
+      ${rows.map(([label, value]) => `<div class="review-row"><span>${label}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("")}
+    </div>
+  `;
 }
 
-async function handleListingSubmit(e) {
-  e.preventDefault();
-  const errorEl = document.getElementById("formError");
-  errorEl.classList.add("hidden");
-  const submitBtn = e.target.querySelector("button[type=submit]");
-  submitBtn.disabled = true;
-
-  try {
-    const file = document.getElementById("fPhoto").files[0];
-    let photoUrl = existingPhotoUrl;
-    if (file) {
-      photoUrl = await uploadResidentPhoto(currentUser.id, file);
-    }
-
-    const isCritical = document.getElementById("fCritical").checked;
-    await saveMyResident(currentUser.id, {
-      name: document.getElementById("fName").value.trim(),
-      zone: document.getElementById("fZone").value,
-      water: Number(document.getElementById("fWater").value),
-      food: Number(document.getElementById("fFood").value),
-      solar_power: Number(document.getElementById("fSolar").value),
-      batteries: Number(document.getElementById("fBatteries").value),
-      shelter: document.getElementById("fShelter").value,
-      is_critical: isCritical,
-      device_type: isCritical ? document.getElementById("fDevice").value.trim() || null : null,
-      photo_url: photoUrl
-    });
-
-    RESIDENTS = await fetchResidents();
-    log(`${currentUser.email} saved their resource listing.`);
-    recompute({ setStep: 4 });
-    switchTab("console");
-  } catch (err) {
-    errorEl.textContent = err.message || "Could not save your listing.";
-    errorEl.classList.remove("hidden");
-  } finally {
-    submitBtn.disabled = false;
-  }
+function capitalize(str) {
+  return str ? str[0].toUpperCase() + str.slice(1) : str;
 }
 
 /** Runs the engine for currentSeverity and re-renders every screen. */
@@ -324,7 +370,7 @@ function recompute({ setStep }) {
 function logPipelineOutcome() {
   const shortageCount = currentForecast.filter(r => r.status === "CRITICAL" || r.status === "SHORTAGE").length;
   const criticalCount = currentForecast.filter(r => r.status === "CRITICAL").length;
-  log(`Detected ${shortageCount} shortages (${criticalCount} critical) across the island.`);
+  log(`Detected ${shortageCount} shortages (${criticalCount} critical) across Vanuatu.`);
   log(`Ranking by urgency + critical-need dependency + vulnerability + shelter quality...`);
 
   currentMatchResult.matches.slice(0, 6).forEach(match => {
@@ -491,7 +537,7 @@ function renderNetwork() {
 
   const svg = document.getElementById("networkSvg");
   svg.innerHTML = `${rings}${links.join("")}${nodes}
-    <text x="${NETWORK_CENTER.x}" y="${NETWORK_CENTER.y - 4}" text-anchor="middle" font-size="9" opacity="0.4" letter-spacing="1" fill="#82859E">KAILANI</text>`;
+    <text x="${NETWORK_CENTER.x}" y="${NETWORK_CENTER.y - 4}" text-anchor="middle" font-size="9" opacity="0.4" letter-spacing="1" fill="#82859E">VANUATU</text>`;
 
   svg.querySelectorAll(".zone-node").forEach(node => {
     node.addEventListener("click", () => {
@@ -509,7 +555,7 @@ function renderZoneDetail() {
   const wrap = document.getElementById("zoneDetailWrap");
 
   if (!selectedZone) {
-    wrap.innerHTML = `<div class="zone-hint">Tap a zone to inspect households and their resource levels.</div>`;
+    wrap.innerHTML = `<div class="zone-hint">Tap an island to inspect households and their resource levels.</div>`;
     return;
   }
 

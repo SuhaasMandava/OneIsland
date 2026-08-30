@@ -1,10 +1,13 @@
 /*
  * data.js
  * -------
- * Static reference data for OneIsland: the island itself and its five
- * neighborhoods. Resident data used to live here as a hardcoded array —
- * it now comes live from the Supabase "residents" table instead (see
- * residents-store.js), so the app reflects real sign-ups and edits.
+ * Static reference data for OneIsland: Vanuatu and its five demo regions.
+ * Vanuatu is real — the most cyclone-exposed nation in the Pacific,
+ * averaging 2-3 tropical cyclones a year — which is why it's the setting
+ * for this demo rather than a fictional backdrop. Resident data used to
+ * live here as a hardcoded array — it now comes live from the Supabase
+ * "residents" table instead (see residents-store.js), populated through
+ * the guided onboarding flow (see onboarding.js).
  *
  * Every resident's resources are stored as "hours" — i.e. how many hours
  * of that resource remain at their CURRENT (pre-storm) rate of use. This
@@ -12,35 +15,38 @@
  * a storm changes consumption/supply, which changes the hours remaining.
  */
 
-// The demo island. Coordinates are real (Key West, FL) so we can pull a
-// genuine live marine forecast from Open-Meteo — but the "island" itself
-// (name, residents, zones) is fictional for the demo.
+// The demo nation. Coordinates are Port Vila, the capital on Efate, so we
+// can pull a genuine live forecast for Vanuatu from Open-Meteo.
 const ISLAND = {
-  name: "Kailani Island",
-  region: "Straits of Kailani",
-  lat: 24.5551,
-  lon: -81.7800
+  name: "Vanuatu",
+  region: "South Pacific Ocean",
+  lat: -17.7333,
+  lon: 168.3167
 };
 
-// Five neighborhoods ("zones") arranged in a ring around the island.
-// coastal: true means the zone is exposed to storm surge, which matters
-// for the water-contamination rule in engine.js.
+// Five real Vanuatu islands, arranged in a ring for the Zone Network map.
+// coastal: true means the main population center is a low-lying harbor
+// town exposed to storm surge, which matters for the water-contamination
+// rule in engine.js — Efate (Port Vila) and Santo (Luganville) are
+// Vanuatu's two coastal port towns; Tanna, Malekula and Pentecost are
+// framed here as more rural/interior village communities.
 const ZONES = [
-  { id: "harbor-point",      name: "Harbor Point",       short: "Harbor Pt.", coastal: true },
-  { id: "marina-row",        name: "Marina Row",         short: "Marina Row", coastal: true },
-  { id: "fishermans-wharf",  name: "Fisherman's Wharf",  short: "The Wharf",  coastal: true },
-  { id: "old-town",          name: "Old Town",           short: "Old Town",   coastal: false },
-  { id: "highlands",         name: "Highlands",          short: "Highlands", coastal: false }
+  { id: "efate",          name: "Efate",           short: "Efate",     coastal: true },
+  { id: "espiritu-santo",  name: "Espiritu Santo",  short: "Santo",     coastal: true },
+  { id: "tanna",           name: "Tanna",           short: "Tanna",     coastal: false },
+  { id: "malekula",        name: "Malekula",        short: "Malekula",  coastal: false },
+  { id: "pentecost",       name: "Pentecost",       short: "Pentecost", coastal: false }
 ];
 
-// Which zones border which. Used by the matching engine to prefer moving
-// resources between neighbors before shipping them across the island.
+// Which islands border which in the Zone Network ring. Used by the
+// matching engine to prefer moving resources between neighbors before
+// shipping them across the archipelago.
 const ZONE_ADJACENCY = {
-  "harbor-point":     ["marina-row", "highlands"],
-  "marina-row":       ["harbor-point", "fishermans-wharf"],
-  "fishermans-wharf": ["marina-row", "old-town"],
-  "old-town":         ["fishermans-wharf", "highlands"],
-  "highlands":        ["old-town", "harbor-point"]
+  "efate":         ["espiritu-santo", "pentecost"],
+  "espiritu-santo": ["efate", "tanna"],
+  "tanna":         ["espiritu-santo", "malekula"],
+  "malekula":      ["tanna", "pentecost"],
+  "pentecost":     ["malekula", "efate"]
 };
 
 /*
@@ -49,20 +55,27 @@ const ZONE_ADJACENCY = {
  *  id              row uuid
  *  userId          the owning auth user, or null for seed/demo rows
  *  name            person / household name shown in the UI
- *  zone            one of ZONES[].id
- *  householdSize   always 1 in this schema (one row per signed-up person)
+ *  zone            primary island — zones[0] — used by the matching
+ *                  engine and the Zone Network map (see the note in
+ *                  residents-store.js about why only one zone drives
+ *                  matching even though onboarding allows several)
+ *  zones           every island this household selected during onboarding
+ *  householdSize   number of people in the household
+ *  ages            ages of household members, as entered during onboarding
  *  powerSource     "grid" | "independent" (solar and/or battery backup)
  *  resources.water.hours   hours of water remaining at current use
  *  resources.food.hours    hours of food remaining at current use
  *  resources.power.hours   hours of power remaining at current use
  *  shelterRating   "sturdy" | "moderate" | "weak"
- *  vulnerableMembers  always 0 — this schema doesn't track household
- *                     composition, so this scoring term is inactive
+ *  vulnerableMembers  count of household members under 5 or 65+, derived
+ *                     from `ages` (see CHILD/ELDERLY thresholds in
+ *                     residents-store.js)
  *  specialNeeds    array of { label, resource } — at most one entry,
  *                  derived from is_critical + device_type
  *  photoUrl        public URL of an uploaded photo, or null
  *
- * This mutable array is populated by app.js on startup (and again after
- * any sign-up/edit) via fetchResidents() in residents-store.js.
+ * This mutable array is populated by app.js on entering the dashboard
+ * (and again after onboarding/edits) via fetchResidents() in
+ * residents-store.js.
  */
 let RESIDENTS = [];

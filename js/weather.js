@@ -3,9 +3,9 @@
  * ----------
  * Talks to Open-Meteo (https://open-meteo.com) — a free weather API that
  * needs no API key and no signup, which is why we picked it for a
- * hackathon demo. We pull current wind/gust/precipitation for the
- * island's coordinates and turn that into one of our four storm
- * severity levels (calm / watch / warning / severe).
+ * hackathon demo. We pull current wind/gust/precipitation for Port Vila,
+ * Vanuatu's capital, and turn that into one of our four storm severity
+ * levels (calm / watch / warning / severe).
  *
  * Because a venue's wifi can't be relied on mid-demo, every place that
  * calls fetchLiveWeather() is expected to fall back gracefully to the
@@ -38,12 +38,13 @@ async function fetchLiveWeather() {
 
 /**
  * Our rule for turning real wind data into a severity level. These
- * thresholds are simplified from the real Beaufort/Saffir-Simpson scales
- * so they're easy to state out loud to a judge:
- *   >= 74 mph gusts -> hurricane-force  -> "severe"
+ * thresholds are simplified from the real Australian/Vanuatu Meteorology
+ * tropical cyclone category scale so they're easy to state out loud to a
+ * judge:
+ *   >= 74 mph gusts -> cyclone-force        -> "severe"
  *   >= 39 mph gusts -> tropical-storm-force -> "warning"
- *   >= 25 mph gusts -> strong/gusty -> "watch"
- *   otherwise -> "calm"
+ *   >= 25 mph gusts -> strong/gusty         -> "watch"
+ *   otherwise                               -> "calm"
  */
 function deriveSeverityFromWind(gustMph) {
   if (gustMph >= 74) return "severe";
@@ -76,9 +77,9 @@ function describeWeatherCode(code) {
 function simulatedWeatherFor(severity) {
   const presets = {
     calm:    { tempF: 84, windMph: 9,  gustMph: 14, precipIn: 0.0, description: "Clear sky" },
-    watch:   { tempF: 81, windMph: 22, gustMph: 30, precipIn: 0.3, description: "Rain showers, tropical storm watch issued" },
-    warning: { tempF: 77, windMph: 38, gustMph: 52, precipIn: 1.1, description: "Tropical storm warning in effect" },
-    severe:  { tempF: 73, windMph: 65, gustMph: 88, precipIn: 3.4, description: "Hurricane-force winds — severe storm" }
+    watch:   { tempF: 81, windMph: 22, gustMph: 30, precipIn: 0.3, description: "Rain showers, tropical cyclone watch issued" },
+    warning: { tempF: 77, windMph: 38, gustMph: 52, precipIn: 1.1, description: "Tropical cyclone warning in effect" },
+    severe:  { tempF: 73, windMph: 65, gustMph: 88, precipIn: 3.4, description: "Cyclone-force winds — severe storm" }
   };
   return { source: "simulated", severity, ...presets[severity] };
 }

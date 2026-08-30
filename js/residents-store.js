@@ -3,32 +3,55 @@
  * -------------------
  * All reads/writes to the Supabase "residents" table + "resource-photos"
  * storage bucket live here, plus the adapter that maps a database row onto
- * the shape engine.js already expects (unchanged from before Supabase).
+ * the shape engine.js already expects (engine.js itself is untouched).
  *
  * Column -> engine field mapping:
- *   water, food             -> resources.water.hours / resources.food.hours
- *   solar_power + batteries -> resources.power.hours (combined independent supply)
+ *   water, food        -> resources.water.hours / resources.food.hours.
+ *     Onboarding asks for these in DAYS (a real person can answer "about
+ *     how many days of water do you have?"); they're converted to hours
+ *     once, at save time (see onboarding.js), so these columns store
+ *     hours directly, same as before.
+ *   solar_power, batteries -> stored as raw kWh CAPACITY (what onboarding
+ *     actually asks: "what's your solar system's capacity?"). Converted
+ *     to the engine's "hours of power remaining" here, at read time, by
+ *     dividing total capacity by an assumed essential-only draw — see
+ *     ESSENTIAL_DRAW_KW below. This keeps the raw, honest fact (kWh
+ *     capacity) as the source of truth in the database, and treats
+ *     "hours of backup" as a derived estimate for the engine.
  *   solar_power/batteries > 0 -> powerSource "independent", else "grid"
  *     (engine.js only special-cases the literal string "grid" — once a
  *     storm reaches Warning strength, grid residents are assumed to lose
  *     power entirely and fall back to a small device-battery buffer)
- *   shelter                 -> shelterRating (sturdy | moderate | weak)
+ *   zones[0]            -> zone (the engine and Zone Network map only
+ *     understand one "home base" per resident; a household can select
+ *     multiple islands during onboarding, but only the first is used for
+ *     matching/mapping — see the note on `zone` in data.js)
+ *   ages                -> vulnerableMembers: count of household members
+ *     under CHILD_AGE_THRESHOLD or at/over ELDERLY_AGE_THRESHOLD. A
+ *     simple, explainable stand-in for "needs extra care during a storm."
+ *   shelter              -> shelterRating (sturdy | moderate | weak)
  *   is_critical + device_type -> specialNeeds: [{ label, resource: "power" }]
- *     (this schema only tracks one critical dependency per resident, and
+ *     (this schema tracks one critical dependency per resident, and
  *     assumes it's power-related — true for every critical case in the demo)
- *   vulnerableMembers is not tracked in this simplified schema and always
- *   defaults to 0 — that scoring term is inactive until a future column
- *   (e.g. vulnerable_members) is added back.
  */
 
+const ESSENTIAL_DRAW_KW = 0.15; // assumed average draw for essential-only emergency use: LED lighting, phone charging, a small fridge cycling
+const CHILD_AGE_THRESHOLD = 5;
+const ELDERLY_AGE_THRESHOLD = 65;
+
 function mapResidentRow(row) {
-  const independentHours = Number(row.solar_power || 0) + Number(row.batteries || 0);
+  const capacityKwh = Number(row.solar_power || 0) + Number(row.batteries || 0);
+  const independentHours = capacityKwh / ESSENTIAL_DRAW_KW;
+  const ages = row.ages || [];
+
   return {
     id: row.id,
     userId: row.user_id,
     name: row.name,
-    zone: row.zone,
-    householdSize: 1,
+    zone: (row.zones && row.zones[0]) || null,
+    zones: row.zones || [],
+    householdSize: row.household_size || 1,
+    ages,
     powerSource: independentHours > 0 ? "independent" : "grid",
     resources: {
       water: { hours: Number(row.water) },
@@ -36,7 +59,7 @@ function mapResidentRow(row) {
       power: { hours: independentHours }
     },
     shelterRating: row.shelter,
-    vulnerableMembers: 0,
+    vulnerableMembers: ages.filter(a => a < CHILD_AGE_THRESHOLD || a >= ELDERLY_AGE_THRESHOLD).length,
     specialNeeds: row.is_critical && row.device_type
       ? [{ label: row.device_type, resource: "power" }]
       : [],
@@ -54,7 +77,7 @@ async function fetchResidents() {
   return data.map(mapResidentRow);
 }
 
-/** The signed-in user's own row, if they've created one yet. */
+/** The signed-in user's own row, if they've completed onboarding yet. */
 async function fetchMyResident(userId) {
   const { data, error } = await supabaseClient
     .from("residents")

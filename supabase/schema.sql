@@ -1,34 +1,48 @@
 -- =======================================================================
--- OneIsland — Supabase schema
+-- OneIsland — Supabase schema (Vanuatu edition)
 -- -----------------------------------------------------------------------
+-- If you already ran an earlier version of this file, running this one
+-- again UPGRADES your existing table in place: it adds the columns the
+-- guided onboarding flow needs (zones, household_size, ages), drops the
+-- old single "zone" column and its fictional-island values, and replaces
+-- the seed data with real Vanuatu households. Any real sign-up rows are
+-- preserved (matched by user_id, never deleted) but will have an empty
+-- `zones` array until that person redoes onboarding once — the app
+-- already treats "no zones selected yet" as "needs onboarding".
+--
 -- Run this ONCE in the Supabase dashboard: Project > SQL Editor > New
 -- query > paste this whole file > Run.
---
--- It creates the "residents" table, its Row Level Security policies,
--- 8 demo/seed residents so the app looks alive before anyone signs up,
--- and the "resource-photos" storage bucket with its own policies.
 -- =======================================================================
 
--- 1. Table ---------------------------------------------------------------
+-- 1. Table (fresh install) -------------------------------------------------
 create table if not exists public.residents (
-  id           uuid primary key default gen_random_uuid(),
-  -- One row per signed-up user. Null for the seed/demo rows below, which
-  -- keeps them un-editable by anyone (see the update/delete policies).
-  user_id      uuid unique references auth.users(id) on delete cascade,
-  name         text not null,
-  zone         text not null default 'harbor-point'
-                 check (zone in ('harbor-point','marina-row','fishermans-wharf','old-town','highlands')),
-  water        numeric not null default 24,
-  food         numeric not null default 24,
-  solar_power  numeric not null default 0,
-  batteries    numeric not null default 0,
-  shelter      text not null default 'moderate'
-                 check (shelter in ('sturdy','moderate','weak')),
-  is_critical  boolean not null default false,
-  device_type  text,
-  photo_url    text,
-  created_at   timestamptz not null default now()
+  id              uuid primary key default gen_random_uuid(),
+  user_id         uuid unique references auth.users(id) on delete cascade,
+  name            text not null,
+  zones           text[] not null default '{}'::text[],
+  household_size  int not null default 1,
+  ages            int[] not null default '{}'::int[],
+  water           numeric not null default 24,  -- hours of water remaining
+  food            numeric not null default 24,  -- hours of food remaining
+  solar_power     numeric not null default 0,    -- solar system capacity, kWh
+  batteries       numeric not null default 0,    -- battery storage capacity, kWh
+  shelter         text not null default 'moderate'
+                    check (shelter in ('sturdy','moderate','weak')),
+  is_critical     boolean not null default false,
+  device_type     text,
+  photo_url       text,
+  created_at      timestamptz not null default now()
 );
+
+-- 1b. Migration (upgrading an existing install from the previous schema) ---
+alter table public.residents add column if not exists zones text[] not null default '{}'::text[];
+alter table public.residents add column if not exists household_size int not null default 1;
+alter table public.residents add column if not exists ages int[] not null default '{}'::int[];
+alter table public.residents drop column if exists zone;
+
+alter table public.residents drop constraint if exists residents_zones_check;
+alter table public.residents add constraint residents_zones_check
+  check (zones <@ array['efate','espiritu-santo','tanna','malekula','pentecost']::text[]);
 
 -- 2. Row Level Security ----------------------------------------------------
 alter table public.residents enable row level security;
@@ -39,7 +53,7 @@ drop policy if exists "residents_update_own" on public.residents;
 drop policy if exists "residents_delete_own" on public.residents;
 
 -- Anyone (including anonymous visitors) can read every resident — the
--- matching engine needs the full island picture to find surpluses.
+-- matching engine needs the full picture across islands to find surpluses.
 create policy "residents_read_all"
   on public.residents for select
   using (true);
@@ -60,20 +74,25 @@ create policy "residents_delete_own"
   on public.residents for delete
   using (auth.uid() = user_id);
 
--- 3. Seed data -------------------------------------------------------------
--- Guarded by name so this is safe to run more than once.
-insert into public.residents (name, zone, water, food, solar_power, batteries, shelter, is_critical, device_type)
-select v.name, v.zone, v.water, v.food, v.solar_power, v.batteries, v.shelter, v.is_critical, v.device_type
+-- 3. Seed data (Vanuatu households) -----------------------------------------
+-- Clears the old fictional-island demo rows (all seed rows have a null
+-- user_id, so this never touches a real sign-up) and reseeds with real
+-- Vanuatu locations so the Zone Network map looks populated everywhere.
+delete from public.residents where user_id is null;
+
+insert into public.residents
+  (name, zones, household_size, ages, water, food, solar_power, batteries, shelter, is_critical, device_type)
+select v.name, v.zones, v.household_size, v.ages, v.water, v.food, v.solar_power, v.batteries, v.shelter, v.is_critical, v.device_type
 from (values
-  ('Sione Kavana',      'harbor-point',     30::numeric, 50::numeric,  0::numeric,  0::numeric, 'sturdy',   true,  'Oxygen concentrator'),
-  ('Tavita Household',  'harbor-point',     40,          60,           0,           0,          'moderate', false, null),
-  ('Fale Family',       'harbor-point',     90,          40,          35,          15,          'sturdy',   false, null),
-  ('Captain Ioane',     'marina-row',       20,          15,           0,          70,          'moderate', false, null),
-  ('Litia Ma''afu',     'marina-row',       10,          45,           0,           0,          'weak',     false, null),
-  ('Vika Faleolo',      'fishermans-wharf', 12,          10,          10,           5,          'weak',     true,  'Insulin refrigeration'),
-  ('Kealoha Homestead', 'highlands',       150,          70,          60,          20,          'sturdy',   false, null),
-  ('Old Town Bakery',   'old-town',         50,         120,           0,          40,          'sturdy',   false, null)
-) as v(name, zone, water, food, solar_power, batteries, shelter, is_critical, device_type)
+  ('Kalo Family',          array['efate']::text[],           3, array[42,39,68]::int[],  36::numeric,  48::numeric, 0::numeric,  0::numeric, 'sturdy',   true,  'Oxygen concentrator'),
+  ('Vira Solar Homestead', array['efate']::text[],            4, array[35,33,10,8]::int[], 120,          72,          4,           6,          'sturdy',   false, null),
+  ('Captain Melsul',       array['espiritu-santo']::text[],   2, array[55,52]::int[],      48,           24,          1,           8,          'moderate', false, null),
+  ('Naomi Bong',           array['espiritu-santo']::text[],   2, array[24,1]::int[],       12,           9.6,         0,           0,          'weak',     false, null),
+  ('Iarkei Family',        array['tanna']::text[],            3, array[45,44,16]::int[],   24,           24,          0.5,         0.5,        'weak',     true,  'Insulin refrigeration'),
+  ('Yasur View Lodge',     array['tanna']::text[],             2, array[50,48]::int[],      144,          120,         3,           5,          'sturdy',   false, null),
+  ('Namaru Bakery',        array['malekula']::text[],         3, array[40,38,15]::int[],   48,           192,         0,           10,         'sturdy',   false, null),
+  ('Bunlap Community',     array['pentecost']::text[],        6, array[50,48,25,20,15,70]::int[], 24,    36,          0.5,         0.5,        'moderate', false, null)
+) as v(name, zones, household_size, ages, water, food, solar_power, batteries, shelter, is_critical, device_type)
 where not exists (select 1 from public.residents r where r.name = v.name);
 
 -- 4. Storage bucket for resident photos -------------------------------------
