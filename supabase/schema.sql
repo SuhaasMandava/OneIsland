@@ -1,6 +1,11 @@
 -- =======================================================================
--- OneIsland — Supabase schema (Vanuatu edition, multi-property)
+-- OneIsland — Supabase schema
 -- -----------------------------------------------------------------------
+-- The "residents" table and its policies below are general — they'd work
+-- for any island community. The zone check constraint and the seed data
+-- (section 3) are this hackathon demo's Vanuatu configuration; swap them
+-- for another region's islands/households without touching anything else.
+--
 -- If you already ran an earlier version of this file, running this one
 -- again UPGRADES your existing table in place: a household can now have
 -- MORE THAN ONE property (e.g. a primary home on Efate plus a vacation

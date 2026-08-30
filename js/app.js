@@ -377,7 +377,7 @@ function recompute({ setStep }) {
 function logPipelineOutcome() {
   const shortageCount = currentForecast.filter(r => r.status === "CRITICAL" || r.status === "SHORTAGE").length;
   const criticalCount = currentForecast.filter(r => r.status === "CRITICAL").length;
-  log(`Detected ${shortageCount} shortages (${criticalCount} critical) across Vanuatu.`);
+  log(`Detected ${shortageCount} shortages (${criticalCount} critical) across ${ISLAND.name}.`);
   log(`Ranking by urgency + critical-need dependency + vulnerability + shelter quality...`);
 
   currentMatchResult.matches.slice(0, 6).forEach(match => {

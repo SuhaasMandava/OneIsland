@@ -295,7 +295,7 @@ function welcomeStepMarkup() {
     <div class="onb-welcome">
       <div class="onb-kicker">Let's get you set up</div>
       <h2>A few quick questions</h2>
-      <p>This tells OneIsland what your household has — and what it might need — before the next cyclone reaches Vanuatu.</p>
+      <p>This tells OneIsland what your household has — and what it might need — before the next storm reaches ${ISLAND.name}.</p>
     </div>`;
 }
 

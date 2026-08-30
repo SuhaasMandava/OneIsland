@@ -3,9 +3,10 @@
  * ----------
  * Talks to Open-Meteo (https://open-meteo.com) — a free weather API that
  * needs no API key and no signup, which is why we picked it for a
- * hackathon demo. We pull current wind/gust/precipitation for Port Vila,
- * Vanuatu's capital, and turn that into one of our four storm severity
- * levels (calm / watch / warning / severe).
+ * hackathon demo. We pull current wind/gust/precipitation for whichever
+ * coordinates this deployment is configured for (see ISLAND in data.js —
+ * Port Vila, Vanuatu's capital, for this demo), and turn that into one
+ * of our four storm severity levels (calm / watch / warning / severe).
  *
  * Because a venue's wifi can't be relied on mid-demo, every place that
  * calls fetchLiveWeather() is expected to fall back gracefully to the

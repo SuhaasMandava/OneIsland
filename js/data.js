@@ -1,13 +1,21 @@
 /*
  * data.js
  * -------
- * Static reference data for OneIsland: Vanuatu and its five demo regions.
- * Vanuatu is real — the most cyclone-exposed nation in the Pacific,
- * averaging 2-3 tropical cyclones a year — which is why it's the setting
- * for this demo rather than a fictional backdrop. Resident data used to
- * live here as a hardcoded array — it now comes live from the Supabase
- * "residents" table instead (see residents-store.js), populated through
- * the guided onboarding flow (see onboarding.js).
+ * OneIsland itself is a general resource-intelligence system for ANY
+ * island community — nothing in engine.js, app.js, or the Supabase
+ * schema is Vanuatu-specific. This file is the one place that configures
+ * WHICH community a given deployment is watching: the nation/region for
+ * live weather, and its zones for the Zone Network map. Point it at a
+ * different island nation by editing ISLAND/ZONES/ZONE_ADJACENCY below —
+ * nothing else in the app needs to change.
+ *
+ * This deployment is configured for Vanuatu — the hackathon demo's
+ * chosen setting, and a genuinely compelling one: it's the most
+ * cyclone-exposed nation in the Pacific, averaging 2-3 tropical cyclones
+ * a year. Resident data used to live here as a hardcoded array — it now
+ * comes live from the Supabase "residents" table instead (see
+ * residents-store.js), populated through the guided onboarding flow
+ * (see onboarding.js).
  *
  * Every resident's resources are stored as "hours" — i.e. how many hours
  * of that resource remain at their CURRENT (pre-storm) rate of use. This
@@ -15,8 +23,8 @@
  * a storm changes consumption/supply, which changes the hours remaining.
  */
 
-// The demo nation. Coordinates are Port Vila, the capital on Efate, so we
-// can pull a genuine live forecast for Vanuatu from Open-Meteo.
+// This deployment's nation/region. Coordinates are Port Vila, Vanuatu's
+// capital on Efate, so we can pull a genuine live forecast from Open-Meteo.
 const ISLAND = {
   name: "Vanuatu",
   region: "South Pacific Ocean",
@@ -24,12 +32,13 @@ const ISLAND = {
   lon: 168.3167
 };
 
-// Five real Vanuatu islands, arranged in a ring for the Zone Network map.
-// coastal: true means the main population center is a low-lying harbor
-// town exposed to storm surge, which matters for the water-contamination
-// rule in engine.js — Efate (Port Vila) and Santo (Luganville) are
-// Vanuatu's two coastal port towns; Tanna, Malekula and Pentecost are
-// framed here as more rural/interior village communities.
+// This deployment's five zones — real Vanuatu islands, arranged in a ring
+// for the Zone Network map. coastal: true means the main population
+// center is a low-lying harbor town exposed to storm surge, which
+// matters for the water-contamination rule in engine.js — Efate (Port
+// Vila) and Santo (Luganville) are Vanuatu's two coastal port towns;
+// Tanna, Malekula and Pentecost are framed here as more rural/interior
+// village communities.
 const ZONES = [
   { id: "efate",          name: "Efate",           short: "Efate",     coastal: true },
   { id: "espiritu-santo",  name: "Espiritu Santo",  short: "Santo",     coastal: true },
