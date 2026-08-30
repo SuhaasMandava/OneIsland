@@ -35,7 +35,8 @@ function defaultOnboardingState() {
   return {
     editing: false,
     stepIndex: 0,
-    steps: ["welcome", "name", "zones", "review"], // rebuilt once islands are picked
+    steps: ["welcome", "community", "name", "zones", "review"], // rebuilt once islands are picked
+    community: "vanuatu",
     name: "",
     zones: [],
     properties: [], // one entry per zone, kept in sync with `zones`
@@ -62,7 +63,7 @@ function startOnboarding(existingRows) {
 
   if (rows.length > 0) {
     onboarding.editing = true;
-    onboarding.stepIndex = 1; // skip the welcome screen when editing
+    onboarding.stepIndex = 2; // skip the welcome and (fixed, single-option) community screens when editing
     onboarding.name = rows[0].name || "";
     onboarding.zones = rows.map(r => r.zone);
     onboarding.properties = rows.map(r => ({
@@ -91,7 +92,7 @@ function wireOnboardingControls() {
 }
 
 function onboardingGoBack() {
-  const floor = onboarding.editing ? 1 : 0;
+  const floor = onboarding.editing ? 2 : 0;
   if (onboarding.stepIndex <= floor) return;
   onboarding.stepIndex--;
   renderOnboardingStep();
@@ -120,11 +121,11 @@ function onboardingGoNext() {
   renderOnboardingStep();
 }
 
-/** Builds the full step list: welcome/name/zones once, then six questions
- *  (occupancy, ages, solar, battery, medical, basics) repeated per
- *  selected island, then a final review. */
+/** Builds the full step list: welcome/community/name/zones once, then six
+ *  questions (occupancy, ages, solar, battery, medical, basics) repeated
+ *  per selected island, then a final review. */
 function buildStepSequence() {
-  const steps = ["welcome", "name", "zones"];
+  const steps = ["welcome", "community", "name", "zones"];
   onboarding.zones.forEach((_zoneId, i) => {
     steps.push({ id: "household", zoneIndex: i });
     steps.push({ id: "ages", zoneIndex: i });
@@ -224,7 +225,7 @@ function renderOnboardingStep() {
  *  dot, not four) so a household with several homes doesn't get an
  *  absurdly long dot row. */
 function sectionSequence() {
-  const sections = ["welcome", "name", "zones"];
+  const sections = ["welcome", "community", "name", "zones"];
   const zoneCount = Math.max(onboarding.zones.length, 1);
   for (let i = 0; i < zoneCount; i++) sections.push(`property-${i}`);
   sections.push("review");
@@ -250,7 +251,7 @@ function renderOnboardingNav() {
   const backBtn = document.getElementById("onbBackBtn");
   const nextBtn = document.getElementById("onbNextBtn");
 
-  const floor = onboarding.editing ? 1 : 0;
+  const floor = onboarding.editing ? 2 : 0;
   backBtn.classList.toggle("hidden", onboarding.stepIndex <= floor);
 
   nextBtn.textContent = type === "welcome" ? "Get Started" : type === "review" ? "Finish" : "Next";
@@ -266,6 +267,7 @@ function setOnboardingBusy(busy) {
 function stepMarkup(type) {
   switch (type) {
     case "welcome": return welcomeStepMarkup();
+    case "community": return communityStepMarkup();
     case "name": return nameStepMarkup();
     case "zones": return zonesStepMarkup();
     case "household": return householdStepMarkup();
@@ -281,6 +283,7 @@ function stepMarkup(type) {
 
 function wireStepInputs(type) {
   switch (type) {
+    case "community": return wireCommunityStep();
     case "name": return wireNameStep();
     case "zones": return wireZonesStep();
     case "household": return wireHouseholdStep();
@@ -301,6 +304,21 @@ function welcomeStepMarkup() {
       <h2>A few quick questions</h2>
       <p>This tells OneIsland what your household has — and what it might need — before the next storm reaches ${ISLAND.name}.</p>
     </div>`;
+}
+
+// ---- community ----
+function communityStepMarkup() {
+  return `
+    <label class="field-label">Which island community are you part of?</label>
+    <select class="field-input" id="onbCommunity">
+      <option value="vanuatu">Vanuatu</option>
+      <option value="" disabled>More communities coming soon&hellip;</option>
+    </select>
+    <p class="onb-hint">This deployment currently supports Vanuatu only &mdash; more island communities are a work in progress.</p>`;
+}
+function wireCommunityStep() {
+  document.getElementById("onbCommunity").value = onboarding.community;
+  document.getElementById("onbCommunity").addEventListener("change", e => { onboarding.community = e.target.value; });
 }
 
 // ---- name ----

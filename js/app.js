@@ -317,6 +317,7 @@ async function renderProfileTab() {
   const householdHtml = `
     <div class="review-list">
       <div class="review-row"><span>Household</span><strong>${escapeHtml(String(first.name))}</strong></div>
+      <div class="review-row"><span>Community</span><strong>${escapeHtml(ISLAND.name)}</strong></div>
     </div>`;
 
   const propertyCards = myPropertyRows.map(row => {
