@@ -226,6 +226,32 @@ test("runMatching: never drains a donor below the safety buffer", () => {
   assert.ok(matches[0].amountHours <= 25, `transfer of ${matches[0].amountHours}h should leave the donor at or above their safety buffer`);
 });
 
+// ---- projectTimeToCritical() ----
+
+function outlookHour(hoursFromNow, severity, cloudCoverPct = 50) {
+  const gustBySeverity = { calm: 14, watch: 30, warning: 52, severe: 88 };
+  return { hoursFromNow, severity, cloudCoverPct, gustMph: gustBySeverity[severity] };
+}
+
+test("projectTimeToCritical: finds the soonest hour the forecast alone would tip a resource critical", () => {
+  // 9h of stock stays above CRITICAL (<6h) at calm/watch, but 9 / 1.60 = 5.6h at severe.
+  const resident = buildResident({ resources: { water: { hours: 9 }, food: { hours: 9 }, power: { hours: 9 } } });
+  const outlook = [outlookHour(1, "calm"), outlookHour(2, "watch"), outlookHour(3, "severe")];
+  assert.equal(engine.projectTimeToCritical(resident, "water", outlook), 3);
+});
+
+test("projectTimeToCritical: returns null when nothing in the outlook would tip it critical", () => {
+  const resident = buildResident({ resources: { water: { hours: 100 }, food: { hours: 100 }, power: { hours: 100 } } });
+  const outlook = [outlookHour(1, "calm"), outlookHour(2, "watch"), outlookHour(3, "warning")];
+  assert.equal(engine.projectTimeToCritical(resident, "water", outlook), null);
+});
+
+test("projectTimeToCritical: returns null for an empty or missing outlook", () => {
+  const resident = buildResident();
+  assert.equal(engine.projectTimeToCritical(resident, "water", []), null);
+  assert.equal(engine.projectTimeToCritical(resident, "water", null), null);
+});
+
 // ---- formatResourceAmount() ----
 
 test("formatResourceAmount: food shows as meals, power as kWh, water as hours", () => {

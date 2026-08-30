@@ -294,6 +294,8 @@ section + section, .block + .block { margin-top: 16px; }
 .activity-flow { font-size: 0.82rem; }
 .activity-meta { font-size: 0.7rem; color: var(--ink-faint); }
 
+.outlook-peak { font-size: 0.8rem; color: var(--ink-dim); margin-bottom: 8px; }
+
 .rec-card {
   border: 1px solid var(--brass-dim);
   border-radius: var(--radius);

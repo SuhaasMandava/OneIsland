@@ -39,6 +39,35 @@ async function fetchLiveWeather() {
 }
 
 /**
+ * Pulls Open-Meteo's hourly forecast (not just the current reading) and
+ * turns it into an hour-by-hour outlook for the next `hoursAhead` hours —
+ * the projected severity and cloud cover at each point. This is what lets
+ * the console look ahead ("critical in ~9h if the storm holds this
+ * track") instead of only reacting to the current instant.
+ */
+async function fetchHourlyOutlook(hoursAhead = 24) {
+  const url =
+    `https://api.open-meteo.com/v1/forecast?latitude=${ISLAND.lat}&longitude=${ISLAND.lon}` +
+    `&hourly=wind_gusts_10m,cloud_cover&wind_speed_unit=mph&forecast_days=2`;
+
+  const response = await fetch(url, { signal: AbortSignal.timeout(6000) });
+  if (!response.ok) throw new Error(`Open-Meteo hourly request failed: ${response.status}`);
+
+  const data = await response.json();
+  const { time, wind_gusts_10m: gusts, cloud_cover: clouds } = data.hourly;
+  const now = Date.now();
+
+  return time
+    .map((isoHour, i) => ({
+      hoursFromNow: Math.round((new Date(isoHour).getTime() - now) / 3_600_000),
+      gustMph: gusts[i],
+      cloudCoverPct: clouds[i]
+    }))
+    .filter(h => h.hoursFromNow >= 0 && h.hoursFromNow <= hoursAhead)
+    .map(h => ({ ...h, severity: deriveSeverityFromWind(h.gustMph) }));
+}
+
+/**
  * Our rule for turning real wind data into a severity level. These
  * thresholds are simplified from the real Australian/Vanuatu Meteorology
  * tropical cyclone category scale so they're easy to state out loud to a

@@ -148,6 +148,25 @@ function predictHours(resident, resourceKey, severity, weather) {
   return Math.max(0, Math.round(hours * 10) / 10);
 }
 
+/**
+ * Looks ahead through an hourly weather outlook (see fetchHourlyOutlook()
+ * in weather.js) and finds the soonest hour at which the FORECAST
+ * conditions alone — run through the same predictHours() rules used for
+ * "right now" — would put this resource into CRITICAL. This answers "when
+ * does the storm's own forecast path get bad enough to put this household
+ * at risk?", using the resident's current stock throughout; it does not
+ * additionally simulate that stock draining hour by hour, so it's an
+ * early-warning signal, not a depletion countdown.
+ */
+function projectTimeToCritical(resident, resourceKey, hourlyOutlook) {
+  if (!hourlyOutlook) return null;
+  for (const hour of hourlyOutlook) {
+    const hours = predictHours(resident, resourceKey, hour.severity, hour);
+    if (classify(hours) === "CRITICAL") return hour.hoursFromNow;
+  }
+  return null;
+}
+
 /** STEP 2: Turn a forecast hours-remaining number into a plain-English status. */
 function classify(hours) {
   if (hours < STATUS_THRESHOLDS.CRITICAL) return "CRITICAL";

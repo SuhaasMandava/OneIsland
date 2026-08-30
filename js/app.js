@@ -22,6 +22,7 @@ let myPropertyRows = [];
 
 let currentSeverity = "calm";
 let currentWeather = null;
+let currentHourlyOutlook = []; // next-24h projected severity/cloud cover, see fetchHourlyOutlook()
 let currentForecast = [];
 let currentMatchResult = { matches: [], unresolved: [] };
 let simulationRunning = false;
@@ -176,6 +177,13 @@ async function enterDashboard() {
   } catch (err) {
     RESIDENTS = [];
     console.error("Could not load residents from Supabase — check js/config.js for your publishable key.", err);
+  }
+
+  try {
+    currentHourlyOutlook = await fetchHourlyOutlook(24);
+  } catch (err) {
+    currentHourlyOutlook = [];
+    console.warn("Hourly outlook unavailable (no connection) — 24-hour projections will be hidden.", err);
   }
 
   try {
@@ -421,7 +429,52 @@ function recompute({ setStep }) {
 
   renderTopBar();
   renderConsole();
+  renderOutlook();
   renderStormScreen(setStep);
+}
+
+/**
+ * Renders the 24-Hour Outlook panel: the forecast's own projected peak
+ * severity, plus any household/resource pairs that aren't in trouble
+ * right now but are projected to tip into CRITICAL before that peak
+ * passes, per projectTimeToCritical() in engine.js.
+ */
+function renderOutlook() {
+  const container = document.getElementById("outlookList");
+  if (!container) return;
+
+  if (currentHourlyOutlook.length === 0) {
+    container.innerHTML = `<div class="ft-empty">24-hour outlook unavailable right now.</div>`;
+    return;
+  }
+
+  const peak = currentHourlyOutlook.reduce((worst, hour) =>
+    SEVERITY_LEVELS.indexOf(hour.severity) > SEVERITY_LEVELS.indexOf(worst.severity) ? hour : worst
+  , currentHourlyOutlook[0]);
+
+  const peakLine = peak.severity === "calm"
+    ? `<div class="outlook-peak">No worsening conditions expected in the next 24 hours.</div>`
+    : `<div class="outlook-peak">Forecast peaks at <strong>${SEVERITY_INFO[peak.severity].label}</strong> in about ${peak.hoursFromNow}h.</div>`;
+
+  const projections = [];
+  RESIDENTS.forEach(resident => {
+    RESOURCE_KEYS.forEach(resourceKey => {
+      const currentRow = currentForecast.find(r => r.resident.id === resident.id && r.resourceKey === resourceKey);
+      if (currentRow && currentRow.status === "CRITICAL") return; // already known — not a new projection
+      const etaHours = projectTimeToCritical(resident, resourceKey, currentHourlyOutlook);
+      if (etaHours != null) projections.push({ resident, resourceKey, etaHours });
+    });
+  });
+  projections.sort((a, b) => a.etaHours - b.etaHours);
+
+  const list = projections.slice(0, 5).map(p => `
+    <div class="activity-row">
+      <span class="activity-flow"><strong>${escapeHtml(p.resident.name)}</strong> &mdash; ${p.resourceKey}</span>
+      <span class="activity-meta">Projected critical in ~${p.etaHours}h if the forecast holds</span>
+    </div>
+  `).join("") || `<div class="ft-empty">No other households are projected to reach critical in the next 24h.</div>`;
+
+  container.innerHTML = peakLine + list;
 }
 
 /**
