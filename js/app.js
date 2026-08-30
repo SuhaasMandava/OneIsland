@@ -1,10 +1,12 @@
 /*
  * app.js
  * ------
- * UI wiring for OneIsland. This file owns the DOM: rendering the roster,
- * the weather bar, the pipeline stepper, and the AI decision log/matches.
- * All the actual "intelligence" lives in engine.js — this file just calls
- * it and paints the result.
+ * UI wiring for OneIsland. This file owns the DOM: four screens
+ * (Console / Zone Network / Storm Mode / Profile) toggled by the bottom
+ * tab bar, all reading from the same live state. The actual
+ * "intelligence" lives in engine.js — this file calls it and paints the
+ * result. Residents come live from Supabase (residents-store.js); auth
+ * comes from auth.js.
  */
 
 // ---- Application state ----
@@ -13,14 +15,25 @@ let currentWeather = null;
 let currentForecast = [];
 let currentMatchResult = { matches: [], unresolved: [] };
 let simulationRunning = false;
-
-const PIPELINE_STEP_COUNT = 5;
+let activeTab = "console";
+let selectedZone = null;
+let decisionLogLines = [];
+let existingPhotoUrl = null; // the signed-in user's current photo, kept if they don't upload a new one
 
 document.addEventListener("DOMContentLoaded", init);
 
 async function init() {
+  wireTabs();
   wireControls();
-  renderResidentSkeleton(); // so the page looks alive immediately, before any fetch resolves
+  wireAuthForms();
+  populateZoneOptions();
+
+  await initAuth();
+  onAuthChange(() => {
+    renderAuthStrip();
+    renderProfileTab();
+  });
+  renderAuthStrip();
 
   try {
     currentWeather = await fetchLiveWeather();
@@ -32,8 +45,40 @@ async function init() {
     log("Live weather unavailable (no connection) — showing simulated calm baseline.");
   }
 
+  try {
+    RESIDENTS = await fetchResidents();
+    log(`Loaded ${RESIDENTS.length} residents from Supabase.`);
+  } catch (err) {
+    RESIDENTS = [];
+    log("Could not load residents from Supabase — check js/config.js for your publishable key.");
+  }
+
   recompute({ setStep: 0 });
+  renderProfileTab();
 }
+
+// ------------------------------------------------------------------
+// Tab bar
+// ------------------------------------------------------------------
+
+function wireTabs() {
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => switchTab(btn.dataset.tab));
+  });
+  document.getElementById("gotoStormBtn").addEventListener("click", () => switchTab("storm"));
+}
+
+function switchTab(tab) {
+  activeTab = tab;
+  document.querySelectorAll(".tab-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
+  document.querySelectorAll(".screen").forEach(screen => {
+    screen.classList.toggle("active", screen.id === `screen-${tab}`);
+  });
+}
+
+// ------------------------------------------------------------------
+// Controls
+// ------------------------------------------------------------------
 
 function wireControls() {
   document.getElementById("simulateBtn").addEventListener("click", runStormSimulation);
@@ -80,6 +125,7 @@ async function runStormSimulation() {
   simulationRunning = true;
   setButtonsDisabled(true);
   clearLog();
+  switchTab("storm");
 
   const sequence = ["calm", "watch", "warning", "severe"];
   const startIndex = Math.max(0, sequence.indexOf(currentSeverity));
@@ -89,15 +135,15 @@ async function runStormSimulation() {
     currentWeather = simulatedWeatherFor(currentSeverity);
     log(`Conditions worsening: ${SEVERITY_INFO[currentSeverity].label} (${currentWeather.description}).`);
     recompute({ setStep: 0 });
-    await delay(650);
+    await delay(600);
     recompute({ setStep: 1 });
-    await delay(650);
+    await delay(600);
     recompute({ setStep: 2 });
-    await delay(650);
+    await delay(600);
     recompute({ setStep: 3 });
-    await delay(750);
+    await delay(700);
     recompute({ setStep: 4 });
-    await delay(i === sequence.length - 1 ? 0 : 500);
+    await delay(i === sequence.length - 1 ? 0 : 450);
   }
 
   log("Simulation complete: critical needs matched first, remaining surplus routed by priority.");
@@ -110,18 +156,167 @@ function setButtonsDisabled(disabled) {
   document.getElementById("resetBtn").disabled = disabled;
 }
 
-/** Runs the engine for currentSeverity and re-renders every panel. */
+// ------------------------------------------------------------------
+// Auth strip (top bar) + Profile screen
+// ------------------------------------------------------------------
+
+function renderAuthStrip() {
+  const el = document.getElementById("authStrip");
+  if (currentUser) {
+    el.innerHTML = `
+      <span class="as-email">${escapeHtml(currentUser.email)}</span>
+      <button class="as-logout" id="logoutBtn" type="button">Log out</button>
+    `;
+    document.getElementById("logoutBtn").addEventListener("click", async () => {
+      try { await signOut(); } catch (err) { console.error(err); }
+    });
+  } else {
+    el.innerHTML = `<button class="as-signin" id="signInLinkBtn" type="button">Sign in to add your resources &rarr;</button>`;
+    document.getElementById("signInLinkBtn").addEventListener("click", () => switchTab("profile"));
+  }
+}
+
+function populateZoneOptions() {
+  const select = document.getElementById("fZone");
+  if (select.options.length > 0) return; // already populated
+  select.innerHTML = ZONES.map(z => `<option value="${z.id}">${z.name}</option>`).join("");
+}
+
+/** Shows the sign-up/log-in form when logged out, or the "my listing" form when logged in. */
+async function renderProfileTab() {
+  const authForms = document.getElementById("authForms");
+  const listingForm = document.getElementById("myListingForm");
+  const note = document.getElementById("authStatusNote");
+
+  if (!currentUser) {
+    authForms.classList.remove("hidden");
+    listingForm.classList.add("hidden");
+    note.textContent = "Sign up or log in to add your household's resource listing.";
+    return;
+  }
+
+  authForms.classList.add("hidden");
+  listingForm.classList.remove("hidden");
+  note.textContent = `Signed in as ${currentUser.email}. This form creates or updates your one resident listing.`;
+
+  try {
+    const existing = await fetchMyResident(currentUser.id);
+    fillListingForm(existing);
+  } catch (err) {
+    console.error(err);
+  }
+}
+
+function fillListingForm(row) {
+  document.getElementById("fName").value = row ? row.name : "";
+  document.getElementById("fZone").value = row ? row.zone : ZONES[0].id;
+  document.getElementById("fWater").value = row ? row.water : 24;
+  document.getElementById("fFood").value = row ? row.food : 24;
+  document.getElementById("fSolar").value = row ? row.solar_power : 0;
+  document.getElementById("fBatteries").value = row ? row.batteries : 0;
+  document.getElementById("fShelter").value = row ? row.shelter : "moderate";
+
+  const criticalBox = document.getElementById("fCritical");
+  const deviceField = document.getElementById("fDevice");
+  criticalBox.checked = row ? row.is_critical : false;
+  deviceField.value = row && row.device_type ? row.device_type : "";
+  deviceField.classList.toggle("hidden", !criticalBox.checked);
+
+  existingPhotoUrl = row ? row.photo_url : null;
+  const preview = document.getElementById("fPhotoPreview");
+  if (existingPhotoUrl) {
+    preview.classList.remove("hidden");
+    preview.innerHTML = `<img src="${existingPhotoUrl}" alt="Current photo">`;
+  } else {
+    preview.classList.add("hidden");
+    preview.innerHTML = "";
+  }
+}
+
+function wireAuthForms() {
+  document.getElementById("fCritical").addEventListener("change", e => {
+    document.getElementById("fDevice").classList.toggle("hidden", !e.target.checked);
+  });
+
+  document.getElementById("signInBtn").addEventListener("click", () => handleAuthSubmit(signIn));
+  document.getElementById("signUpBtn").addEventListener("click", () => handleAuthSubmit(signUp, true));
+
+  document.getElementById("myListingForm").addEventListener("submit", handleListingSubmit);
+}
+
+async function handleAuthSubmit(authFn, isSignUp) {
+  const email = document.getElementById("authEmail").value.trim();
+  const password = document.getElementById("authPassword").value;
+  const errorEl = document.getElementById("authError");
+  errorEl.classList.add("hidden");
+
+  if (!email || password.length < 6) {
+    errorEl.textContent = "Enter an email and a password of at least 6 characters.";
+    errorEl.classList.remove("hidden");
+    return;
+  }
+
+  try {
+    await authFn(email, password);
+    if (isSignUp) {
+      errorEl.classList.remove("hidden");
+      errorEl.textContent = "Account created. If email confirmation is enabled on the project, check your inbox before logging in.";
+    }
+  } catch (err) {
+    errorEl.textContent = err.message || "Something went wrong.";
+    errorEl.classList.remove("hidden");
+  }
+}
+
+async function handleListingSubmit(e) {
+  e.preventDefault();
+  const errorEl = document.getElementById("formError");
+  errorEl.classList.add("hidden");
+  const submitBtn = e.target.querySelector("button[type=submit]");
+  submitBtn.disabled = true;
+
+  try {
+    const file = document.getElementById("fPhoto").files[0];
+    let photoUrl = existingPhotoUrl;
+    if (file) {
+      photoUrl = await uploadResidentPhoto(currentUser.id, file);
+    }
+
+    const isCritical = document.getElementById("fCritical").checked;
+    await saveMyResident(currentUser.id, {
+      name: document.getElementById("fName").value.trim(),
+      zone: document.getElementById("fZone").value,
+      water: Number(document.getElementById("fWater").value),
+      food: Number(document.getElementById("fFood").value),
+      solar_power: Number(document.getElementById("fSolar").value),
+      batteries: Number(document.getElementById("fBatteries").value),
+      shelter: document.getElementById("fShelter").value,
+      is_critical: isCritical,
+      device_type: isCritical ? document.getElementById("fDevice").value.trim() || null : null,
+      photo_url: photoUrl
+    });
+
+    RESIDENTS = await fetchResidents();
+    log(`${currentUser.email} saved their resource listing.`);
+    recompute({ setStep: 4 });
+    switchTab("console");
+  } catch (err) {
+    errorEl.textContent = err.message || "Could not save your listing.";
+    errorEl.classList.remove("hidden");
+  } finally {
+    submitBtn.disabled = false;
+  }
+}
+
+/** Runs the engine for currentSeverity and re-renders every screen. */
 function recompute({ setStep }) {
   currentForecast = predictConditions(RESIDENTS, currentSeverity);
   currentMatchResult = runMatching(currentForecast);
 
-  renderWeather();
-  renderStormBadge();
-  renderSeverityChips();
-  renderPipeline(setStep);
-  renderResidents();
-  renderSummary();
-  renderMatches();
+  renderTopBar();
+  renderConsole();
+  renderNetwork();
+  renderStormScreen(setStep);
 
   if (setStep === 4) logPipelineOutcome();
 }
@@ -145,68 +340,194 @@ function logPipelineOutcome() {
 }
 
 // ------------------------------------------------------------------
-// Rendering
+// Top bar — storm signal
 // ------------------------------------------------------------------
 
-function renderWeather() {
-  const bar = document.getElementById("weatherBar");
+function renderTopBar() {
+  const severityIndex = SEVERITY_LEVELS.indexOf(currentSeverity); // 0..3
+  const bars = document.getElementById("signalBars");
+  bars.className = `signal-bars lit-${severityIndex + 1}`;
+  document.getElementById("signalLabel").textContent = SEVERITY_INFO[currentSeverity].label;
+}
+
+// ------------------------------------------------------------------
+// Console screen
+// ------------------------------------------------------------------
+
+function renderConsole() {
   const w = currentWeather;
-  const sourceLabel = w.source === "live" ? "LIVE — Open-Meteo" : "SIMULATED";
 
-  bar.innerHTML = `
-    <span class="weather-chip">${sourceLabel}</span>
-    <span class="weather-chip">${Math.round(w.tempF)}&deg;F</span>
-    <span class="weather-chip">Wind ${Math.round(w.windMph)} mph</span>
-    <span class="weather-chip">Gusts ${Math.round(w.gustMph)} mph</span>
-    <span class="weather-chip">${w.precipIn.toFixed(1)}" precip</span>
-    <span class="weather-chip">${w.description}</span>
+  const heroSeverity = document.getElementById("heroSeverity");
+  heroSeverity.textContent = SEVERITY_INFO[currentSeverity].label;
+  heroSeverity.className = `hero-severity ${currentSeverity}`;
+  document.getElementById("heroSub").textContent =
+    `${Math.round(w.gustMph)} mph gusts · ${w.description}`;
+
+  const source = document.getElementById("heroSource");
+  source.className = `hero-source ${w.source === "live" ? "" : "simulated"}`;
+  source.innerHTML = `<span class="dot"></span><span>${w.source === "live" ? "Live · Open-Meteo" : "Simulated scenario"}</span>`;
+
+  document.getElementById("gaugeRow").innerHTML = `
+    <div class="gauge"><div class="g-value mono">${Math.round(w.tempF)}&deg;</div><div class="g-label">Temp</div></div>
+    <div class="gauge"><div class="g-value mono">${Math.round(w.windMph)}</div><div class="g-label">Wind mph</div></div>
+    <div class="gauge"><div class="g-value mono">${Math.round(w.gustMph)}</div><div class="g-label">Gust mph</div></div>
+    <div class="gauge"><div class="g-value mono">${w.precipIn.toFixed(1)}&Prime;</div><div class="g-label">Precip</div></div>
   `;
+
+  const shortages = currentForecast.filter(r => r.status === "CRITICAL" || r.status === "SHORTAGE");
+  const criticalNeedMatches = currentMatchResult.matches.filter(m =>
+    m.receiver.specialNeeds.some(n => n.resource === m.resourceKey)
+  );
+
+  const stats = [
+    { value: shortages.length, label: "Shortages", accent: "var(--brass)" },
+    { value: criticalNeedMatches.length, label: "Critical protected", accent: "var(--critical)" },
+    { value: currentMatchResult.matches.length, label: "Matches made", accent: "var(--balanced)" },
+    { value: currentMatchResult.unresolved.length, label: "Outside aid", accent: "var(--shortage)" }
+  ];
+  document.getElementById("consoleStats").innerHTML = stats.map(s => `
+    <div class="readout" style="--readout-accent:${s.accent}">
+      <div class="r-value mono">${s.value}</div>
+      <div class="r-label">${s.label}</div>
+    </div>
+  `).join("");
+
+  const featureTicket = document.getElementById("featureTicket");
+  const top = currentMatchResult.matches[0];
+  if (top) {
+    featureTicket.innerHTML = `
+      <div class="ft-kicker">Priority ${top.priorityScore} · ${top.resourceKey}</div>
+      <div class="ft-flow"><span>${top.giver.name}</span><span class="ft-arrow">&rarr;</span><span>${top.receiver.name}</span></div>
+      <div class="ft-reason">${top.reasoning}</div>
+    `;
+  } else {
+    featureTicket.innerHTML = `<div class="ft-empty">No shortages detected at this severity &mdash; every household is self-sufficient.</div>`;
+  }
+
+  renderLogTail();
 }
 
-function renderStormBadge() {
-  const badge = document.getElementById("stormStatusBadge");
-  badge.className = `storm-badge ${currentSeverity}`;
-  document.getElementById("stormStatusLabel").textContent = SEVERITY_INFO[currentSeverity].label;
+function renderLogTail() {
+  const el = document.getElementById("logTail");
+  const lines = decisionLogLines.slice(-3);
+  el.innerHTML = lines.length
+    ? lines.map(line => `<div class="lt-line">${line}</div>`).join("")
+    : `<div class="lt-line log-empty">Waiting for next event&hellip;</div>`;
 }
 
-function renderSeverityChips() {
-  document.querySelectorAll(".severity-chip").forEach(chip => {
-    chip.classList.toggle("active", chip.dataset.severity === currentSeverity);
-  });
+// ------------------------------------------------------------------
+// Zone Network screen
+// ------------------------------------------------------------------
+
+const NETWORK_CENTER = { x: 150, y: 160 };
+const NETWORK_RADIUS = 95;
+
+function zonePosition(index) {
+  const angleDeg = -90 + index * (360 / ZONES.length);
+  const angleRad = (angleDeg * Math.PI) / 180;
+  return {
+    x: NETWORK_CENTER.x + NETWORK_RADIUS * Math.cos(angleRad),
+    y: NETWORK_CENTER.y + NETWORK_RADIUS * Math.sin(angleRad)
+  };
 }
 
-function renderPipeline(activeIndex) {
-  document.querySelectorAll(".step").forEach(stepEl => {
-    const idx = Number(stepEl.dataset.step);
-    stepEl.classList.remove("active", "done");
-    if (idx < activeIndex) stepEl.classList.add("done");
-    else if (idx === activeIndex) stepEl.classList.add("active");
-  });
+/** Worst-case status for a zone, used to color its network node. */
+function zoneStatus(zoneId) {
+  const rows = currentForecast.filter(r => r.resident.zone === zoneId);
+  if (rows.some(r => r.status === "CRITICAL")) return "CRITICAL";
+  if (rows.some(r => r.status === "SHORTAGE")) return "SHORTAGE";
+  if (rows.some(r => r.status === "SURPLUS")) return "SURPLUS";
+  return "BALANCED";
 }
 
-function renderResidentSkeleton() {
-  document.getElementById("residentRoster").innerHTML =
-    `<p class="panel-subtitle">Loading resident roster&hellip;</p>`;
+function zoneNeedCount(zoneId) {
+  return currentForecast.filter(r =>
+    r.resident.zone === zoneId && (r.status === "CRITICAL" || r.status === "SHORTAGE")
+  ).length;
 }
 
-function renderResidents() {
-  const container = document.getElementById("residentRoster");
-  container.innerHTML = "";
+// Hex twins of the CSS status tokens — used for SVG fill/stroke attributes,
+// since var() support in presentation attributes is inconsistent across
+// renderers. Keep these in sync with the --critical/--shortage/--balanced/
+// --surplus custom properties in css/styles.css.
+const STATUS_COLOR_HEX = {
+  CRITICAL: "#ff5c46", SHORTAGE: "#e8a23c",
+  BALANCED: "#3aa99c", SURPLUS: "#4fb6c9"
+};
 
-  ZONES.forEach(zone => {
-    const residentsInZone = RESIDENTS.filter(r => r.zone === zone.id);
-    if (residentsInZone.length === 0) return;
+function renderNetwork() {
+  const positions = ZONES.map((z, i) => ({ zone: z, pos: zonePosition(i) }));
 
-    const group = document.createElement("div");
-    group.className = "zone-group";
-    group.innerHTML = `<div class="zone-title">${zone.name} ${zone.coastal ? '<span class="zone-coastal">Coastal</span>' : ""}</div>`;
+  const rings = [55, 95, 130].map(r =>
+    `<circle class="net-ring" cx="${NETWORK_CENTER.x}" cy="${NETWORK_CENTER.y}" r="${r}"/>`
+  ).join("");
 
-    residentsInZone.forEach(resident => {
-      group.appendChild(buildResidentCard(resident));
+  const drawnEdges = new Set();
+  const links = [];
+  positions.forEach(({ zone }) => {
+    (ZONE_ADJACENCY[zone.id] || []).forEach(neighborId => {
+      const edgeKey = [zone.id, neighborId].sort().join("|");
+      if (drawnEdges.has(edgeKey)) return;
+      drawnEdges.add(edgeKey);
+      const a = positions.find(p => p.zone.id === zone.id).pos;
+      const b = positions.find(p => p.zone.id === neighborId).pos;
+      links.push(`<line class="net-link" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`);
     });
-
-    container.appendChild(group);
   });
+
+  const nodes = positions.map(({ zone, pos }) => {
+    const status = zoneStatus(zone.id);
+    const count = zoneNeedCount(zone.id);
+    const color = STATUS_COLOR_HEX[status];
+    const selected = selectedZone === zone.id ? "selected" : "";
+    return `
+      <g class="zone-node ${selected}" data-zone="${zone.id}">
+        <circle class="node-bg" cx="${pos.x}" cy="${pos.y}" r="28" fill="${color}" fill-opacity="0.22" stroke="${color}"/>
+        <text class="node-count" x="${pos.x}" y="${pos.y + 5}" text-anchor="middle" font-size="15">${count}</text>
+        <text x="${pos.x}" y="${pos.y + 45}" text-anchor="middle" font-size="11" opacity="0.85">${zone.short}</text>
+      </g>
+    `;
+  }).join("");
+
+  const svg = document.getElementById("networkSvg");
+  svg.innerHTML = `${rings}${links.join("")}${nodes}
+    <text x="${NETWORK_CENTER.x}" y="${NETWORK_CENTER.y - 4}" text-anchor="middle" font-size="9" opacity="0.4" letter-spacing="1">KAILANI</text>`;
+
+  svg.querySelectorAll(".zone-node").forEach(node => {
+    node.addEventListener("click", () => {
+      const zoneId = node.dataset.zone;
+      selectedZone = selectedZone === zoneId ? null : zoneId;
+      renderNetwork();
+      renderZoneDetail();
+    });
+  });
+
+  renderZoneDetail();
+}
+
+function renderZoneDetail() {
+  const wrap = document.getElementById("zoneDetailWrap");
+
+  if (!selectedZone) {
+    wrap.innerHTML = `<div class="zone-hint">Tap a zone to inspect households and their resource levels.</div>`;
+    return;
+  }
+
+  const zone = ZONES.find(z => z.id === selectedZone);
+  const residents = RESIDENTS.filter(r => r.zone === selectedZone);
+
+  wrap.innerHTML = `
+    <div class="zone-detail">
+      <div class="zone-detail-head">
+        <h3>${zone.name}</h3>
+        ${zone.coastal ? '<span class="zd-coastal">Coastal</span>' : ""}
+      </div>
+      <div class="zone-detail-body" id="zoneResidentBody"></div>
+    </div>
+  `;
+
+  const body = document.getElementById("zoneResidentBody");
+  residents.forEach(resident => body.appendChild(buildResidentCard(resident)));
 }
 
 function buildResidentCard(resident) {
@@ -229,11 +550,16 @@ function buildResidentCard(resident) {
       </div>`;
   }).join("");
 
+  const photo = resident.photoUrl
+    ? `<img class="resident-photo" src="${resident.photoUrl}" alt="">`
+    : "";
+
   card.innerHTML = `
     <div class="resident-card-head">
+      ${photo}
       <div>
         <div class="resident-name">${resident.name}</div>
-        <div class="resident-meta">${resident.householdSize > 0 ? resident.householdSize + " people" : "Community stock point"} &middot; ${resident.powerSource} power &middot; ${resident.shelterRating} shelter</div>
+        <div class="resident-meta">${resident.powerSource} power · ${resident.shelterRating} shelter</div>
       </div>
     </div>
     ${badges.length ? `<div class="badge-row">${badges.join("")}</div>` : ""}
@@ -242,77 +568,94 @@ function buildResidentCard(resident) {
   return card;
 }
 
-function renderSummary() {
-  const shortages = currentForecast.filter(r => r.status === "CRITICAL" || r.status === "SHORTAGE");
-  const criticalNeedMatches = currentMatchResult.matches.filter(m =>
-    m.receiver.specialNeeds.some(n => n.resource === m.resourceKey)
-  );
-
-  const stats = [
-    { value: shortages.length, label: "Shortages detected", accent: "" },
-    { value: criticalNeedMatches.length, label: "Critical needs protected first", accent: "accent-critical" },
-    { value: currentMatchResult.matches.length, label: "Matches made", accent: "accent-teal" },
-    { value: currentMatchResult.unresolved.length, label: "Needs outside aid", accent: "" }
-  ];
-
-  document.getElementById("summaryStats").innerHTML = stats.map(s => `
-    <div class="stat-card ${s.accent}">
-      <div class="stat-value">${s.value}</div>
-      <div class="stat-label">${s.label}</div>
-    </div>
-  `).join("");
-}
-
-function renderMatches() {
-  const list = document.getElementById("matchesList");
-  const { matches, unresolved } = currentMatchResult;
-
-  list.innerHTML = matches.length
-    ? matches.map(m => `
-      <div class="match-card receiver-${m.receiverStatus}">
-        <div class="match-flow">
-          <span>${m.giver.name}</span>
-          <span class="match-arrow">&rarr;</span>
-          <span>${m.receiver.name}</span>
-          <span class="match-resource-tag">${m.resourceKey}</span>
-          <span class="priority-pill">Priority ${m.priorityScore}</span>
-        </div>
-        <div class="match-meta">${m.amountHours}h of ${m.resourceKey} transferred &middot; recipient status: ${m.receiverStatus}</div>
-        <div class="match-reasoning">${m.reasoning}</div>
-      </div>
-    `).join("")
-    : `<p class="panel-subtitle">No shortages detected yet at this severity level.</p>`;
-
-  const unresolvedHeading = document.getElementById("unresolvedHeading");
-  const unresolvedList = document.getElementById("unresolvedList");
-
-  unresolvedHeading.classList.toggle("hidden", unresolved.length === 0);
-  unresolvedList.innerHTML = unresolved.map(u => `
-    <div class="unresolved-card">
-      <strong>${u.resident.name}</strong> &mdash; ${u.status} ${u.resourceKey} shortage (${u.hours}h left, priority ${u.priorityScore}).
-      No island donor has spare capacity &mdash; recommend requesting outside relief supply.
-    </div>
-  `).join("");
-}
-
 // ------------------------------------------------------------------
-// Decision log helpers
+// Storm Mode screen
 // ------------------------------------------------------------------
 
-function log(message) {
+function renderStormScreen(activeStepIndex) {
+  document.querySelectorAll(".severity-chip").forEach(chip => {
+    chip.classList.toggle("active", chip.dataset.severity === currentSeverity);
+  });
+
+  document.querySelectorAll(".pv-step").forEach(stepEl => {
+    const idx = Number(stepEl.dataset.step);
+    stepEl.classList.remove("active", "done");
+    if (idx < activeStepIndex) stepEl.classList.add("done");
+    else if (idx === activeStepIndex) stepEl.classList.add("active");
+  });
+
+  document.getElementById("outcomeStrip").innerHTML = `
+    <div class="o-tile"><div class="o-value mono">${currentMatchResult.matches.length}</div><div class="o-label">Matched</div></div>
+    <div class="o-tile"><div class="o-value mono">${currentForecast.filter(r => r.status === "CRITICAL").length}</div><div class="o-label">Critical</div></div>
+    <div class="o-tile"><div class="o-value mono">${currentMatchResult.unresolved.length}</div><div class="o-label">Unresolved</div></div>
+  `;
+
+  renderDecisionLog();
+  renderMatches();
+}
+
+function renderDecisionLog() {
   const el = document.getElementById("decisionLog");
-  const empty = el.querySelector(".log-empty");
-  if (empty) empty.remove();
-
-  const line = document.createElement("div");
-  line.className = "log-line";
-  line.textContent = `> ${message}`;
-  el.appendChild(line);
+  el.innerHTML = decisionLogLines.length
+    ? decisionLogLines.map(line => `<div class="log-line">${line}</div>`).join("")
+    : `<div class="log-empty">Waiting for next event&hellip;</div>`;
   el.scrollTop = el.scrollHeight;
 }
 
+function renderMatches() {
+  const { matches, unresolved } = currentMatchResult;
+
+  document.getElementById("matchesList").innerHTML = matches.length
+    ? matches.map(m => `
+      <div class="ticket receiver-${m.receiverStatus}">
+        <div class="ticket-top">
+          <div class="ticket-flow">
+            <span class="tf-name">${m.giver.name}</span>
+            <span class="tf-arrow">&rarr;</span>
+            <span class="tf-name">${m.receiver.name}</span>
+          </div>
+          <span class="stamp">${m.resourceKey}</span>
+        </div>
+        <div class="ticket-perf">
+          <div class="ticket-meta">
+            <span>${m.amountHours}h transferred · ${m.receiverStatus.toLowerCase()}</span>
+            <span class="priority-tag">P${m.priorityScore}</span>
+          </div>
+          <div class="ticket-reason">${m.reasoning}</div>
+        </div>
+      </div>
+    `).join("")
+    : `<div class="zone-hint">No shortages detected yet at this severity level.</div>`;
+
+  const unresolvedHeading = document.getElementById("unresolvedHeading");
+  unresolvedHeading.classList.toggle("hidden", unresolved.length === 0);
+
+  document.getElementById("unresolvedList").innerHTML = unresolved.map(u => `
+    <div class="unresolved-ticket">
+      <strong>${u.resident.name}</strong> &mdash; ${u.status.toLowerCase()} ${u.resourceKey} shortage
+      (${u.hours}h left, priority ${u.priorityScore}). No island donor has spare capacity.
+    </div>
+  `).join("");
+}
+
+// ------------------------------------------------------------------
+// Decision log helpers (shared by Console tail + Storm full log)
+// ------------------------------------------------------------------
+
+function log(message) {
+  decisionLogLines.push(escapeHtml(message));
+  renderLogTail();
+  renderDecisionLog();
+}
+
 function clearLog() {
-  document.getElementById("decisionLog").innerHTML = `<div class="log-empty">Waiting for next event&hellip;</div>`;
+  decisionLogLines = [];
+  renderLogTail();
+  renderDecisionLog();
+}
+
+function escapeHtml(str) {
+  return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 function delay(ms) {
