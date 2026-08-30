@@ -164,19 +164,17 @@ async function enterDashboard() {
   try {
     currentWeather = await fetchLiveWeather();
     currentSeverity = currentWeather.severity;
-    log(`Connected to Open-Meteo live forecast for ${ISLAND.name}.`);
   } catch (err) {
     currentWeather = simulatedWeatherFor("calm");
     currentSeverity = "calm";
-    log("Live weather unavailable (no connection) — showing simulated calm baseline.");
+    console.warn("Live weather unavailable (no connection) — showing simulated calm baseline.", err);
   }
 
   try {
     RESIDENTS = await fetchResidents();
-    log(`Loaded ${RESIDENTS.length} residents from Supabase.`);
   } catch (err) {
     RESIDENTS = [];
-    log("Could not load residents from Supabase — check js/config.js for your publishable key.");
+    console.error("Could not load residents from Supabase — check js/config.js for your publishable key.", err);
   }
 
   recompute({ setStep: 0 });
