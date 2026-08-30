@@ -76,8 +76,20 @@ button { font-family: inherit; }
   overflow: hidden;
 }
 @media (min-width: 461px) {
-  body { display: flex; justify-content: center; background: var(--hull); }
-  .app-shell { box-shadow: 0 0 0 1px var(--hairline), 0 30px 80px rgba(0,0,0,0.55); }
+  html, body { height: 100%; }
+  body { display: flex; align-items: center; justify-content: center; background: var(--hull); }
+  .app-shell {
+    /* A real phone is wide *and* tall in a fixed ratio — filling 100dvh
+       while only capping width (the old rule) stretched this into a much
+       narrower sliver than an actual phone screen. Size it as a proper
+       9:16 rectangle instead, capped so it never overflows the window. */
+    width: auto;
+    height: min(818px, calc(100dvh - 64px));
+    aspect-ratio: 9 / 16;
+    max-width: none;
+    border-radius: 28px;
+    box-shadow: 0 0 0 1px var(--hairline), 0 30px 80px rgba(0,0,0,0.55);
+  }
 }
 
 /* -----------------------------------------------------------------------
