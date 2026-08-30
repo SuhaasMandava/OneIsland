@@ -26,6 +26,7 @@ let currentForecast = [];
 let currentMatchResult = { matches: [], unresolved: [] };
 let simulationRunning = false;
 let activeTab = "console";
+let recentActivity = []; // confirmed transfers, newest first — see logTransfer()/renderRecentActivity()
 let handledMatchKeys = new Set(); // recommendations the user has already shared/dismissed this scenario
 
 document.addEventListener("DOMContentLoaded", init);
@@ -175,8 +176,60 @@ async function enterDashboard() {
     console.error("Could not load residents from Supabase — check js/config.js for your publishable key.", err);
   }
 
+  try {
+    recentActivity = await fetchRecentTransfers(5);
+  } catch (err) {
+    recentActivity = [];
+    console.warn("Could not load recent activity.", err);
+  }
+  renderRecentActivity();
+
   recompute({ setStep: 0 });
   await renderProfileTab();
+}
+
+/**
+ * Persists a confirmed share to Supabase (see recordTransfer() in
+ * residents-store.js) and prepends it to the on-screen activity log right
+ * away, rather than waiting on the round-trip — the confirmation itself
+ * already told the user it succeeded, so the log should feel instant too.
+ */
+function logTransfer(match) {
+  const entry = {
+    giver_name: match.giver.name,
+    receiver_name: match.receiver.name,
+    resource_key: match.resourceKey,
+    amount_hours: match.amountHours,
+    severity: currentSeverity,
+    created_at: new Date().toISOString()
+  };
+  recentActivity = [entry, ...recentActivity].slice(0, 5);
+  renderRecentActivity();
+
+  recordTransfer({
+    giver: match.giver, receiver: match.receiver,
+    resourceKey: match.resourceKey, amountHours: match.amountHours,
+    severity: currentSeverity
+  }).catch(err => console.warn("Could not save this transfer to the activity log.", err));
+}
+
+function renderRecentActivity() {
+  const container = document.getElementById("recentActivityList");
+  if (!container) return;
+
+  if (recentActivity.length === 0) {
+    container.innerHTML = `<div class="ft-empty">No shares confirmed yet — accepted recommendations will show up here.</div>`;
+    return;
+  }
+
+  container.innerHTML = recentActivity.map(t => `
+    <div class="activity-row">
+      <span class="activity-flow">
+        <strong>${escapeHtml(t.giver_name)}</strong> &rarr; <strong>${escapeHtml(t.receiver_name)}</strong>
+      </span>
+      <span class="activity-meta">${formatResourceAmount(t.resource_key, t.amount_hours)} of ${t.resource_key} &middot; ${SEVERITY_INFO[t.severity] ? SEVERITY_INFO[t.severity].label : t.severity}</span>
+    </div>
+  `).join("");
 }
 
 // ------------------------------------------------------------------
@@ -497,6 +550,7 @@ function renderRecommendations() {
         } else if (action === "confirm") {
           handledMatchKeys.add(key);
           confirmingMatchKey = null;
+          logTransfer(match);
         } else if (action === "dismiss") {
           handledMatchKeys.add(key);
         }

@@ -285,6 +285,15 @@ section + section, .block + .block { margin-top: 16px; }
 
 .recs-list { display: flex; flex-direction: column; gap: 14px; }
 
+.activity-row {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 10px 12px; border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm); background: var(--panel);
+}
+.activity-row + .activity-row { margin-top: 6px; }
+.activity-flow { font-size: 0.82rem; }
+.activity-meta { font-size: 0.7rem; color: var(--ink-faint); }
+
 .rec-card {
   border: 1px solid var(--brass-dim);
   border-radius: var(--radius);

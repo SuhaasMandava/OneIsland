@@ -137,6 +137,42 @@ from (values
 ) as v(name, zone, household_size, ages, water, food, solar_power, batteries, shelter, is_critical, device_type, critical_resource)
 where not exists (select 1 from public.residents r where r.name = v.name and r.zone = v.zone);
 
+-- 3b. Transfers (audit trail of confirmed resource shares) ------------------
+-- Written once by app.js when a household confirms a recommended share
+-- (see js/residents-store.js's recordTransfer()). Names are captured as a
+-- snapshot at confirmation time — not just a foreign key — so the log stays
+-- readable even if a resident row is later edited or removed.
+create table if not exists public.transfers (
+  id                    uuid primary key default gen_random_uuid(),
+  giver_resident_id     uuid references public.residents(id) on delete set null,
+  receiver_resident_id  uuid references public.residents(id) on delete set null,
+  giver_name            text not null,
+  receiver_name         text not null,
+  resource_key          text not null check (resource_key in ('water','food','power')),
+  amount_hours          numeric not null,
+  severity              text not null check (severity in ('calm','watch','warning','severe')),
+  created_at            timestamptz not null default now()
+);
+
+alter table public.transfers enable row level security;
+
+drop policy if exists "transfers_read_all" on public.transfers;
+drop policy if exists "transfers_insert_authenticated" on public.transfers;
+
+-- Anyone can read the activity log — it's community-wide coordination
+-- history, the same visibility as the residents table itself.
+create policy "transfers_read_all"
+  on public.transfers for select
+  using (true);
+
+-- Any signed-in user can log a confirmed share (there's no "own" resident
+-- to check against: a share is between two OTHER households the matching
+-- engine picked, not the confirming user's own property).
+create policy "transfers_insert_authenticated"
+  on public.transfers for insert
+  to authenticated
+  with check (true);
+
 -- 4. Storage bucket for resident photos -------------------------------------
 insert into storage.buckets (id, name, public)
 values ('resource-photos', 'resource-photos', true)

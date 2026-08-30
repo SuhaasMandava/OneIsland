@@ -110,6 +110,36 @@ async function uploadResidentPhoto(userId, file) {
 }
 
 /**
+ * Logs a confirmed resource share to the "transfers" table — the audit
+ * trail behind the Console's "Recent activity" panel. Names are captured
+ * as a snapshot alongside the resident IDs, so the log stays readable even
+ * if a resident row is later edited or deleted (see supabase/schema.sql).
+ */
+async function recordTransfer({ giver, receiver, resourceKey, amountHours, severity }) {
+  const { error } = await supabaseClient.from("transfers").insert({
+    giver_resident_id: giver.id,
+    receiver_resident_id: receiver.id,
+    giver_name: giver.name,
+    receiver_name: receiver.name,
+    resource_key: resourceKey,
+    amount_hours: amountHours,
+    severity
+  });
+  if (error) throw error;
+}
+
+/** Most recent confirmed shares, newest first — public read, no auth required. */
+async function fetchRecentTransfers(limit = 5) {
+  const { data, error } = await supabaseClient
+    .from("transfers")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  if (error) throw error;
+  return data;
+}
+
+/**
  * Replaces the signed-in user's entire set of properties with the given
  * list. Onboarding always submits a complete snapshot (every property the
  * wizard walked through), so "delete everything of mine, then insert the
