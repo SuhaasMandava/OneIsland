@@ -113,10 +113,22 @@ button { font-family: inherit; }
   display: flex; flex-direction: column;
   opacity: 0; transform: translateY(6px);
   pointer-events: none;
+  /* visibility (not just pointer-events) matters here: a nested element
+     can set its own pointer-events: auto (e.g. #screen-console's default
+     ".screen.active" state) and punch straight through an ancestor's
+     pointer-events: none, silently eating clicks meant for whichever mode
+     is actually showing. visibility: hidden has no such loophole — it
+     cascades to every descendant unless one explicitly opts back in,
+     which none of ours do. Delayed on the way out so the fade-out still
+     plays; instant on the way in so the new mode is clickable right away. */
+  visibility: hidden;
   overflow-y: auto;
+  transition: opacity 0.22s var(--ease), transform 0.22s var(--ease), visibility 0s linear 0.22s;
+}
+.app-mode.active {
+  opacity: 1; transform: translateY(0); pointer-events: auto; visibility: visible;
   transition: opacity 0.22s var(--ease), transform 0.22s var(--ease);
 }
-.app-mode.active { opacity: 1; transform: translateY(0); pointer-events: auto; }
 #mode-dashboard { overflow: hidden; } /* its own .screens handles per-tab scrolling */
 
 /* ---- Landing ---- */
