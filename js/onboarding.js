@@ -49,7 +49,7 @@ function blankProperty(zoneId) {
     householdSize: 1, ages: [30],
     hasSolar: false, solarKwh: 2,
     hasBattery: false, batteryKwh: 3,
-    isCritical: false, deviceType: "",
+    isCritical: false, deviceType: "", criticalResource: "power",
     waterDays: 3, foodDays: 3, shelter: "moderate",
     photoFile: null, existingPhotoUrl: null
   };
@@ -72,6 +72,7 @@ function startOnboarding(existingRows) {
       hasSolar: Number(r.solar_power) > 0, solarKwh: Number(r.solar_power) || 2,
       hasBattery: Number(r.batteries) > 0, batteryKwh: Number(r.batteries) || 3,
       isCritical: !!r.is_critical, deviceType: r.device_type || "",
+      criticalResource: r.critical_resource || "power",
       waterDays: r.water != null ? Math.round((r.water / 24) * 10) / 10 : 3,
       foodDays: r.food != null ? Math.round((r.food / 24) * 10) / 10 : 3,
       shelter: r.shelter || "moderate",
@@ -456,12 +457,22 @@ function wireYesNoStep(ynPrefix, followupId, setFlag, setValue) {
 }
 
 // ---- medical (per property) ----
+const CRITICAL_RESOURCE_OPTIONS = [
+  { value: "power", label: "Power", hint: "e.g. an oxygen concentrator or refrigerated insulin" },
+  { value: "water", label: "Water", hint: "e.g. a dialysis machine or wound care" },
+  { value: "food", label: "Food", hint: "e.g. infant formula or a medical diet" }
+];
+
 function medicalStepMarkup() {
   const p = currentProperty();
+  const resourceChips = CRITICAL_RESOURCE_OPTIONS.map(opt => `
+    <button type="button" class="chip-toggle ${p.criticalResource === opt.value ? "active" : ""}" data-critical-resource="${opt.value}">${opt.label}</button>
+  `).join("");
+  const activeHint = CRITICAL_RESOURCE_OPTIONS.find(opt => opt.value === p.criticalResource) || CRITICAL_RESOURCE_OPTIONS[0];
   return `
     ${propertyKicker()}
-    <label class="field-label">Does anyone rely on life-saving medical equipment at your home on ${zoneLabelForCurrentStep()}?</label>
-    <p class="onb-hint">For example: an oxygen concentrator, dialysis machine, or refrigerated insulin.</p>
+    <label class="field-label">Does anyone rely on a critical need at your home on ${zoneLabelForCurrentStep()}?</label>
+    <p class="onb-hint">For example: an oxygen concentrator, dialysis machine, refrigerated insulin, or infant formula.</p>
     <div class="yn-toggle" id="onbMedicalYN">
       <button type="button" class="yn-btn ${p.isCritical ? "active" : ""}" data-value="yes">Yes</button>
       <button type="button" class="yn-btn ${!p.isCritical ? "active" : ""}" data-value="no">No</button>
@@ -469,6 +480,9 @@ function medicalStepMarkup() {
     <div class="onb-followup ${p.isCritical ? "" : "hidden"}" id="onbMedicalFollowup">
       <label class="field-label">What kind?</label>
       <input type="text" class="field-input" id="onbDeviceType" placeholder="e.g. Oxygen concentrator" value="${escapeAttr(p.deviceType)}">
+      <label class="field-label">Which resource does it depend on?</label>
+      <div class="chip-grid" id="onbCriticalResource">${resourceChips}</div>
+      <p class="onb-hint" id="onbCriticalResourceHint">${activeHint.hint}</p>
     </div>`;
 }
 function wireMedicalStep() {
@@ -484,6 +498,16 @@ function wireMedicalStep() {
     });
   });
   document.getElementById("onbDeviceType").addEventListener("input", e => { p.deviceType = e.target.value; });
+
+  const resourceEl = document.getElementById("onbCriticalResource");
+  const hintEl = document.getElementById("onbCriticalResourceHint");
+  resourceEl.querySelectorAll(".chip-toggle").forEach(chip => {
+    chip.addEventListener("click", () => {
+      p.criticalResource = chip.dataset.criticalResource;
+      resourceEl.querySelectorAll(".chip-toggle").forEach(c => c.classList.toggle("active", c === chip));
+      hintEl.textContent = CRITICAL_RESOURCE_OPTIONS.find(opt => opt.value === p.criticalResource).hint;
+    });
+  });
 }
 
 // ---- basics: water / food / shelter (per property) ----
@@ -590,6 +614,7 @@ async function submitOnboarding() {
         shelter: p.shelter,
         is_critical: p.isCritical,
         device_type: p.isCritical ? (p.deviceType.trim() || null) : null,
+        critical_resource: p.isCritical ? p.criticalResource : null,
         photo_url: photoUrl
       });
     }

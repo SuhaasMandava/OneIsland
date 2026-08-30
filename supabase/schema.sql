@@ -38,16 +38,29 @@ create table if not exists public.residents (
                     check (shelter in ('sturdy','moderate','weak')),
   is_critical     boolean not null default false,
   device_type     text,
+  critical_resource text default 'power'
+                    check (critical_resource is null or critical_resource in ('power','water','food')),
   photo_url       text,
   created_at      timestamptz not null default now()
 );
 
 -- 1b. Migration (upgrading an existing install) -----------------------------
 alter table public.residents add column if not exists zone text;
--- Backfill from the old "zones" array (Postgres arrays are 1-indexed) if present.
-update public.residents
-  set zone = zones[1]
-  where zone is null and zones is not null and array_length(zones, 1) > 0;
+-- Backfill from the old "zones" array (Postgres arrays are 1-indexed), only if
+-- that column still exists — a fresh-enough install never had it.
+do $$
+begin
+  if exists (
+    select 1 from information_schema.columns
+    where table_schema = 'public' and table_name = 'residents' and column_name = 'zones'
+  ) then
+    execute '
+      update public.residents
+        set zone = zones[1]
+        where zone is null and zones is not null and array_length(zones, 1) > 0
+    ';
+  end if;
+end $$;
 alter table public.residents alter column zone set default 'efate';
 update public.residents set zone = 'efate' where zone is null;
 alter table public.residents alter column zone set not null;
@@ -63,6 +76,13 @@ alter table public.residents drop constraint if exists residents_user_id_key;
 
 alter table public.residents add column if not exists household_size int not null default 1;
 alter table public.residents add column if not exists ages int[] not null default '{}'::int[];
+
+-- A critical need can depend on power, water, or food — not just power.
+alter table public.residents add column if not exists critical_resource text default 'power';
+update public.residents set critical_resource = 'power' where is_critical and critical_resource is null;
+alter table public.residents drop constraint if exists residents_critical_resource_check;
+alter table public.residents add constraint residents_critical_resource_check
+  check (critical_resource is null or critical_resource in ('power','water','food'));
 
 -- 2. Row Level Security ----------------------------------------------------
 alter table public.residents enable row level security;
@@ -102,19 +122,19 @@ create policy "residents_delete_own"
 delete from public.residents where user_id is null;
 
 insert into public.residents
-  (name, zone, household_size, ages, water, food, solar_power, batteries, shelter, is_critical, device_type)
-select v.name, v.zone, v.household_size, v.ages, v.water, v.food, v.solar_power, v.batteries, v.shelter, v.is_critical, v.device_type
+  (name, zone, household_size, ages, water, food, solar_power, batteries, shelter, is_critical, device_type, critical_resource)
+select v.name, v.zone, v.household_size, v.ages, v.water, v.food, v.solar_power, v.batteries, v.shelter, v.is_critical, v.device_type, v.critical_resource
 from (values
-  ('Kalo Family',          'efate',            3, array[42,39,68]::int[],  36::numeric,  48::numeric, 0::numeric,  0::numeric, 'sturdy',   true,  'Oxygen concentrator'),
-  ('Kalo Family',          'pentecost',        3, array[42,39,68]::int[],  72,           48,          1,           1,          'moderate', false, null),
-  ('Vira Solar Homestead', 'efate',            4, array[35,33,10,8]::int[], 120,          72,          4,           6,          'sturdy',   false, null),
-  ('Captain Melsul',       'espiritu-santo',   2, array[55,52]::int[],      48,           24,          1,           8,          'moderate', false, null),
-  ('Naomi Bong',           'espiritu-santo',   2, array[24,1]::int[],       12,           9.6,         0,           0,          'weak',     false, null),
-  ('Iarkei Family',        'tanna',            3, array[45,44,16]::int[],   24,           24,          0.5,         0.5,        'weak',     true,  'Insulin refrigeration'),
-  ('Yasur View Lodge',     'tanna',            2, array[50,48]::int[],      144,          120,         3,           5,          'sturdy',   false, null),
-  ('Namaru Bakery',        'malekula',         3, array[40,38,15]::int[],   48,           192,         0,           10,         'sturdy',   false, null),
-  ('Bunlap Community',     'pentecost',        6, array[50,48,25,20,15,70]::int[], 24,    36,          0.5,         0.5,        'moderate', false, null)
-) as v(name, zone, household_size, ages, water, food, solar_power, batteries, shelter, is_critical, device_type)
+  ('Kalo Family',          'efate',            3, array[42,39,68]::int[],  36::numeric,  48::numeric, 0::numeric,  0::numeric, 'sturdy',   true,  'Oxygen concentrator',      'power'),
+  ('Kalo Family',          'pentecost',        3, array[42,39,68]::int[],  72,           48,          1,           1,          'moderate', false, null,                        null),
+  ('Vira Solar Homestead', 'efate',            4, array[35,33,10,8]::int[], 120,          72,          4,           6,          'sturdy',   false, null,                        null),
+  ('Captain Melsul',       'espiritu-santo',   2, array[55,52]::int[],      48,           24,          1,           8,          'moderate', false, null,                        null),
+  ('Naomi Bong',           'espiritu-santo',   2, array[24,1]::int[],       12,           9.6,         0,           0,          'weak',     true,  'Infant formula',           'food'),
+  ('Iarkei Family',        'tanna',            3, array[45,44,16]::int[],   24,           24,          0.5,         0.5,        'weak',     true,  'Dialysis machine',         'water'),
+  ('Yasur View Lodge',     'tanna',            2, array[50,48]::int[],      144,          120,         3,           5,          'sturdy',   false, null,                        null),
+  ('Namaru Bakery',        'malekula',         3, array[40,38,15]::int[],   48,           192,         0,           10,         'sturdy',   false, null,                        null),
+  ('Bunlap Community',     'pentecost',        6, array[50,48,25,20,15,70]::int[], 24,    36,          0.5,         0.5,        'moderate', false, null,                        null)
+) as v(name, zone, household_size, ages, water, food, solar_power, batteries, shelter, is_critical, device_type, critical_resource)
 where not exists (select 1 from public.residents r where r.name = v.name and r.zone = v.zone);
 
 -- 4. Storage bucket for resident photos -------------------------------------

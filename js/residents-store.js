@@ -35,9 +35,10 @@
  *     under CHILD_AGE_THRESHOLD or at/over ELDERLY_AGE_THRESHOLD. A
  *     simple, explainable stand-in for "needs extra care during a storm."
  *   shelter              -> shelterRating (sturdy | moderate | weak)
- *   is_critical + device_type -> specialNeeds: [{ label, resource: "power" }]
- *     (this schema tracks one critical dependency per property, and
- *     assumes it's power-related — true for every critical case in the demo)
+ *   is_critical + device_type + critical_resource -> specialNeeds:
+ *     [{ label, resource }] (this schema tracks one critical dependency per
+ *     property; critical_resource says whether it depends on power, water,
+ *     or food, defaulting to "power" for rows saved before that column existed)
  */
 
 const ESSENTIAL_DRAW_KW = 0.15; // assumed average draw for essential-only emergency use: LED lighting, phone charging, a small fridge cycling
@@ -65,7 +66,7 @@ function mapResidentRow(row) {
     shelterRating: row.shelter,
     vulnerableMembers: ages.filter(a => a < CHILD_AGE_THRESHOLD || a >= ELDERLY_AGE_THRESHOLD).length,
     specialNeeds: row.is_critical && row.device_type
-      ? [{ label: row.device_type, resource: "power" }]
+      ? [{ label: row.device_type, resource: row.critical_resource || "power" }]
       : [],
     photoUrl: row.photo_url
   };
