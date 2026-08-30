@@ -18,7 +18,7 @@
 // ---- Application state ----
 let appMode = "landing";
 let authMode = "signup";
-let myResidentRow = null;
+let myPropertyRows = [];
 
 let currentSeverity = "calm";
 let currentWeather = null;
@@ -135,25 +135,23 @@ async function routeAfterAuthChange(user, event) {
     return;
   }
 
-  let existingRow = null;
+  let existingRows = [];
   try {
-    existingRow = await fetchMyResident(user.id);
+    existingRows = await fetchMyProperties(user.id);
   } catch (err) {
     console.error(err);
   }
 
-  if (needsOnboarding(existingRow)) {
-    startOnboarding(existingRow);
+  if (needsOnboarding(existingRows)) {
+    startOnboarding(existingRows);
   } else {
     await enterDashboard();
   }
 }
 
-/** A row with no islands selected yet counts as "not onboarded" — covers
- *  both a brand-new user (no row at all) and one migrated from an older
- *  schema version who hasn't redone the (now-required) zones step. */
-function needsOnboarding(row) {
-  return !row || !row.zones || row.zones.length === 0;
+/** No property rows at all means this user has never completed onboarding. */
+function needsOnboarding(rows) {
+  return !rows || rows.length === 0;
 }
 
 /** Single entry point into the main app — called after login-with-existing-
@@ -304,7 +302,7 @@ function renderAuthStrip() {
 // ------------------------------------------------------------------
 
 function wireProfileTab() {
-  document.getElementById("editProfileBtn").addEventListener("click", () => startOnboarding(myResidentRow));
+  document.getElementById("editProfileBtn").addEventListener("click", () => startOnboarding(myPropertyRows));
 }
 
 async function renderProfileTab() {
@@ -312,42 +310,51 @@ async function renderProfileTab() {
   container.innerHTML = `<p class="onb-hint">Loading your profile&hellip;</p>`;
 
   try {
-    myResidentRow = await fetchMyResident(currentUser.id);
+    myPropertyRows = await fetchMyProperties(currentUser.id);
   } catch (err) {
     container.innerHTML = `<p class="onb-hint">Could not load your profile.</p>`;
     return;
   }
-  if (!myResidentRow) {
+  if (!myPropertyRows || myPropertyRows.length === 0) {
     container.innerHTML = `<p class="onb-hint">No profile on file yet.</p>`;
     return;
   }
 
-  const zoneNames = (myResidentRow.zones || [])
-    .map(id => (ZONES.find(z => z.id === id) || { name: id }).name)
-    .join(", ") || "—";
-
-  const rows = [
-    ["Household", myResidentRow.name],
-    ["Island(s)", zoneNames],
-    ["People", `${myResidentRow.household_size} (ages ${(myResidentRow.ages || []).join(", ") || "—"})`],
-    ["Solar", Number(myResidentRow.solar_power) > 0 ? `${myResidentRow.solar_power} kWh` : "None"],
-    ["Battery", Number(myResidentRow.batteries) > 0 ? `${myResidentRow.batteries} kWh` : "None"],
-    ["Critical need", myResidentRow.is_critical ? myResidentRow.device_type : "None"],
-    ["Water", `${Math.round((myResidentRow.water / 24) * 10) / 10} days`],
-    ["Food", `${Math.round((myResidentRow.food / 24) * 10) / 10} days`],
-    ["Shelter", capitalize(myResidentRow.shelter)]
+  const first = myPropertyRows[0];
+  const householdRows = [
+    ["Household", first.name],
+    ["People", `${first.household_size} (ages ${(first.ages || []).join(", ") || "—"})`]
   ];
 
-  const photo = myResidentRow.photo_url
-    ? `<img class="resident-photo profile-photo" src="${myResidentRow.photo_url}" alt="">`
-    : "";
-
-  container.innerHTML = `
-    ${photo}
+  const householdHtml = `
     <div class="review-list">
-      ${rows.map(([label, value]) => `<div class="review-row"><span>${label}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("")}
-    </div>
-  `;
+      ${householdRows.map(([label, value]) => `<div class="review-row"><span>${label}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("")}
+    </div>`;
+
+  const propertyCards = myPropertyRows.map(row => {
+    const zone = ZONES.find(z => z.id === row.zone);
+    const rows = [
+      ["Solar", Number(row.solar_power) > 0 ? `${row.solar_power} kWh` : "None"],
+      ["Battery", Number(row.batteries) > 0 ? `${row.batteries} kWh` : "None"],
+      ["Critical need", row.is_critical ? row.device_type : "None"],
+      ["Water", `${Math.round((row.water / 24) * 10) / 10} days`],
+      ["Food", `${Math.round((row.food / 24) * 10) / 10} days`],
+      ["Shelter", capitalize(row.shelter)]
+    ];
+    const photo = row.photo_url
+      ? `<img class="resident-photo profile-photo" src="${row.photo_url}" alt="">`
+      : "";
+    return `
+      <div class="property-card">
+        <div class="property-card-head">${zone ? zone.name : row.zone}</div>
+        ${photo}
+        <div class="review-list">
+          ${rows.map(([label, value]) => `<div class="review-row"><span>${label}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("")}
+        </div>
+      </div>`;
+  }).join("");
+
+  container.innerHTML = householdHtml + propertyCards;
 }
 
 function capitalize(str) {

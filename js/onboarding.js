@@ -6,23 +6,26 @@
  * editing an existing profile later from the Profile tab — same steps,
  * just pre-filled and starting past the welcome screen.
  *
- * This collects the same underlying data the old single-page form did —
- * it just changes HOW the user provides it. Everything still lands in
- * the same "residents" table via saveMyResident() (residents-store.js)
- * and feeds the same unmodified prediction/matching engine.
+ * A household answers "name" / "how many people" / "ages" ONCE (that's
+ * about the people, not a building), then picks every island they have a
+ * home on. Each selected island then gets its OWN full set of resource
+ * questions — a vacation home on another island is a genuinely separate
+ * property with its own solar/battery/water/food/shelter/medical-need
+ * situation, not just another label on the same pool of resources. The
+ * wizard's step list is therefore built dynamically once the islands are
+ * known, repeating the same four resource questions once per property.
+ *
+ * Everything still lands in the same "residents" table via
+ * saveMyProperties() (residents-store.js) and feeds the same unmodified
+ * prediction/matching engine — one row per property, each an independent
+ * resource pool, exactly like any other two residents on the island.
  *
  * Units shown to the user are real-world and natural (days of water,
  * kWh of solar/battery capacity, ages in years) rather than the engine's
- * abstract "hours remaining" — the conversion happens once, here, at
- * save time (residents-store.js does the symmetric kWh conversion at
- * read time for solar/battery, since that one is a lossy estimate best
- * kept out of the stored fact).
+ * abstract "hours remaining" — the conversion happens once, at save time
+ * (kWh is instead converted at *read* time, in residents-store.js, since
+ * that conversion is a lossy estimate best kept out of the stored fact).
  */
-
-const ONBOARDING_STEPS = [
-  "welcome", "name", "zones", "household", "ages",
-  "solar", "battery", "medical", "basics", "review"
-];
 
 let onboarding = null;
 
@@ -30,40 +33,51 @@ function defaultOnboardingState() {
   return {
     editing: false,
     stepIndex: 0,
+    steps: ["welcome", "name", "zones", "household", "ages", "review"], // rebuilt once islands are picked
     name: "",
     zones: [],
     householdSize: 1,
     ages: [30],
-    hasSolar: false, solarKwh: 2,
-    hasBattery: false, batteryKwh: 3,
-    isCritical: false, deviceType: "",
-    waterDays: 3, foodDays: 3, shelter: "moderate",
-    photoFile: null, existingPhotoUrl: null,
+    properties: [], // one entry per zone, kept in sync with `zones`
     busy: false
   };
 }
 
-/** existingRow: a raw residents-table row (from fetchMyResident), or null for a first-time setup. */
-function startOnboarding(existingRow) {
-  onboarding = defaultOnboardingState();
+function blankProperty(zoneId) {
+  return {
+    zone: zoneId,
+    hasSolar: false, solarKwh: 2,
+    hasBattery: false, batteryKwh: 3,
+    isCritical: false, deviceType: "",
+    waterDays: 3, foodDays: 3, shelter: "moderate",
+    photoFile: null, existingPhotoUrl: null
+  };
+}
 
-  if (existingRow) {
+/** existingRows: this user's raw residents-table rows (from fetchMyProperties), or []/null for first-time setup. */
+function startOnboarding(existingRows) {
+  onboarding = defaultOnboardingState();
+  const rows = existingRows || [];
+
+  if (rows.length > 0) {
     onboarding.editing = true;
     onboarding.stepIndex = 1; // skip the welcome screen when editing
-    onboarding.name = existingRow.name || "";
-    onboarding.zones = existingRow.zones ? existingRow.zones.slice() : [];
-    onboarding.householdSize = existingRow.household_size || 1;
-    onboarding.ages = existingRow.ages && existingRow.ages.length ? existingRow.ages.slice() : [30];
-    onboarding.hasSolar = Number(existingRow.solar_power) > 0;
-    onboarding.solarKwh = Number(existingRow.solar_power) || 2;
-    onboarding.hasBattery = Number(existingRow.batteries) > 0;
-    onboarding.batteryKwh = Number(existingRow.batteries) || 3;
-    onboarding.isCritical = !!existingRow.is_critical;
-    onboarding.deviceType = existingRow.device_type || "";
-    onboarding.waterDays = existingRow.water != null ? Math.round((existingRow.water / 24) * 10) / 10 : 3;
-    onboarding.foodDays = existingRow.food != null ? Math.round((existingRow.food / 24) * 10) / 10 : 3;
-    onboarding.shelter = existingRow.shelter || "moderate";
-    onboarding.existingPhotoUrl = existingRow.photo_url || null;
+    const first = rows[0];
+    onboarding.name = first.name || "";
+    onboarding.householdSize = first.household_size || 1;
+    onboarding.ages = first.ages && first.ages.length ? first.ages.slice() : [30];
+    onboarding.zones = rows.map(r => r.zone);
+    onboarding.properties = rows.map(r => ({
+      zone: r.zone,
+      hasSolar: Number(r.solar_power) > 0, solarKwh: Number(r.solar_power) || 2,
+      hasBattery: Number(r.batteries) > 0, batteryKwh: Number(r.batteries) || 3,
+      isCritical: !!r.is_critical, deviceType: r.device_type || "",
+      waterDays: r.water != null ? Math.round((r.water / 24) * 10) / 10 : 3,
+      foodDays: r.food != null ? Math.round((r.food / 24) * 10) / 10 : 3,
+      shelter: r.shelter || "moderate",
+      photoFile: null, existingPhotoUrl: r.photo_url || null
+    }));
+    onboarding.steps = buildStepSequence();
   }
 
   setAppMode("onboarding");
@@ -90,41 +104,93 @@ function onboardingGoNext() {
   }
   hideOnboardingError();
 
-  if (ONBOARDING_STEPS[onboarding.stepIndex] === "review") {
+  const type = currentStepType();
+
+  if (type === "zones") {
+    syncPropertiesToZones();
+    onboarding.steps = buildStepSequence();
+  }
+  if (type === "review") {
     submitOnboarding();
     return;
   }
+
   onboarding.stepIndex++;
   renderOnboardingStep();
 }
 
-function currentStepId() {
-  return ONBOARDING_STEPS[onboarding.stepIndex];
+/** Builds the full step list: fixed household questions, then four resource
+ *  questions repeated per selected island, then a final review. */
+function buildStepSequence() {
+  const steps = ["welcome", "name", "zones", "household", "ages"];
+  onboarding.zones.forEach((_zoneId, i) => {
+    steps.push({ id: "solar", zoneIndex: i });
+    steps.push({ id: "battery", zoneIndex: i });
+    steps.push({ id: "medical", zoneIndex: i });
+    steps.push({ id: "basics", zoneIndex: i });
+  });
+  steps.push("review");
+  return steps;
+}
+
+/** Keeps `properties` aligned with `zones`: preserves answers already given
+ *  for islands still selected, adds a blank entry for newly-added ones, and
+ *  drops entries for islands that got deselected. */
+function syncPropertiesToZones() {
+  onboarding.properties = onboarding.zones.map(zoneId =>
+    onboarding.properties.find(p => p.zone === zoneId) || blankProperty(zoneId)
+  );
+}
+
+function currentStep() { return onboarding.steps[onboarding.stepIndex]; }
+function currentStepType() { const s = currentStep(); return typeof s === "string" ? s : s.id; }
+function currentStepZoneIndex() { const s = currentStep(); return typeof s === "string" ? null : s.zoneIndex; }
+function currentProperty() { return onboarding.properties[currentStepZoneIndex()]; }
+function zoneLabelForCurrentStep() {
+  const zoneId = onboarding.zones[currentStepZoneIndex()];
+  const zone = ZONES.find(z => z.id === zoneId);
+  return zone ? zone.name : zoneId;
+}
+/** A small "Home 2 of 3 · Tanna" orientation line — only shown once a
+ *  household has more than one property, so the common single-home case
+ *  stays exactly as simple as before. */
+function propertyKicker() {
+  const total = onboarding.zones.length;
+  if (total <= 1) return "";
+  return `<div class="onb-kicker">Home ${currentStepZoneIndex() + 1} of ${total} &middot; ${zoneLabelForCurrentStep()}</div>`;
 }
 
 // ------------------------------------------------------------------
 // Validation — one focused check per step, plain-language messages.
 // ------------------------------------------------------------------
 function validateOnboardingStep() {
-  switch (currentStepId()) {
+  switch (currentStepType()) {
     case "name":
       return onboarding.name.trim().length > 0
         ? { valid: true } : { valid: false, message: "Let us know what to call your household." };
     case "zones":
       return onboarding.zones.length > 0
         ? { valid: true } : { valid: false, message: "Pick at least one island." };
-    case "solar":
-      return (!onboarding.hasSolar || onboarding.solarKwh > 0)
+    case "solar": {
+      const p = currentProperty();
+      return (!p.hasSolar || p.solarKwh > 0)
         ? { valid: true } : { valid: false, message: "Enter your solar system's capacity, or choose “No”." };
-    case "battery":
-      return (!onboarding.hasBattery || onboarding.batteryKwh > 0)
+    }
+    case "battery": {
+      const p = currentProperty();
+      return (!p.hasBattery || p.batteryKwh > 0)
         ? { valid: true } : { valid: false, message: "Enter your battery capacity, or choose “No”." };
-    case "medical":
-      return (!onboarding.isCritical || onboarding.deviceType.trim().length > 0)
+    }
+    case "medical": {
+      const p = currentProperty();
+      return (!p.isCritical || p.deviceType.trim().length > 0)
         ? { valid: true } : { valid: false, message: "Let us know what kind of equipment." };
-    case "basics":
-      return (onboarding.waterDays >= 0 && onboarding.foodDays >= 0)
+    }
+    case "basics": {
+      const p = currentProperty();
+      return (p.waterDays >= 0 && p.foodDays >= 0)
         ? { valid: true } : { valid: false, message: "Enter a valid number of days." };
+    }
     default:
       return { valid: true };
   }
@@ -146,37 +212,55 @@ function renderOnboardingStep() {
   hideOnboardingError();
   renderOnboardingDots();
   renderOnboardingNav();
-  document.getElementById("onbStepContainer").innerHTML = stepMarkup(currentStepId());
-  wireStepInputs(currentStepId());
+  document.getElementById("onbStepContainer").innerHTML = stepMarkup(currentStepType());
+  wireStepInputs(currentStepType());
+}
+
+/** Progress dots are collapsed by "section" (each property counts as ONE
+ *  dot, not four) so a household with several homes doesn't get an
+ *  absurdly long dot row. */
+function sectionSequence() {
+  const sections = ["welcome", "name", "zones", "household", "ages"];
+  const zoneCount = Math.max(onboarding.zones.length, 1);
+  for (let i = 0; i < zoneCount; i++) sections.push(`property-${i}`);
+  sections.push("review");
+  return sections;
+}
+function sectionForStepIndex(idx) {
+  const step = onboarding.steps[idx];
+  if (typeof step === "string") return step;
+  return `property-${step.zoneIndex}`;
 }
 
 function renderOnboardingDots() {
-  document.getElementById("onbDots").innerHTML = ONBOARDING_STEPS.map((_, i) => {
-    const cls = i === onboarding.stepIndex ? "onb-dot active" : i < onboarding.stepIndex ? "onb-dot done" : "onb-dot";
+  const sections = sectionSequence();
+  const currentIdx = sections.indexOf(sectionForStepIndex(onboarding.stepIndex));
+  document.getElementById("onbDots").innerHTML = sections.map((_sec, i) => {
+    const cls = i === currentIdx ? "onb-dot active" : i < currentIdx ? "onb-dot done" : "onb-dot";
     return `<span class="${cls}"></span>`;
   }).join("");
 }
 
 function renderOnboardingNav() {
-  const stepId = currentStepId();
+  const type = currentStepType();
   const backBtn = document.getElementById("onbBackBtn");
   const nextBtn = document.getElementById("onbNextBtn");
 
   const floor = onboarding.editing ? 1 : 0;
   backBtn.classList.toggle("hidden", onboarding.stepIndex <= floor);
 
-  nextBtn.textContent = stepId === "welcome" ? "Get Started" : stepId === "review" ? "Finish" : "Next";
+  nextBtn.textContent = type === "welcome" ? "Get Started" : type === "review" ? "Finish" : "Next";
   nextBtn.disabled = onboarding.busy;
 }
 
 function setOnboardingBusy(busy) {
   onboarding.busy = busy;
   document.getElementById("onbNextBtn").disabled = busy;
-  document.getElementById("onbNextBtn").textContent = busy ? "Saving…" : (currentStepId() === "review" ? "Finish" : "Next");
+  document.getElementById("onbNextBtn").textContent = busy ? "Saving…" : (currentStepType() === "review" ? "Finish" : "Next");
 }
 
-function stepMarkup(stepId) {
-  switch (stepId) {
+function stepMarkup(type) {
+  switch (type) {
     case "welcome": return welcomeStepMarkup();
     case "name": return nameStepMarkup();
     case "zones": return zonesStepMarkup();
@@ -191,8 +275,8 @@ function stepMarkup(stepId) {
   }
 }
 
-function wireStepInputs(stepId) {
-  switch (stepId) {
+function wireStepInputs(type) {
+  switch (type) {
     case "name": return wireNameStep();
     case "zones": return wireZonesStep();
     case "household": return wireHouseholdStep();
@@ -231,8 +315,8 @@ function zonesStepMarkup() {
     <button type="button" class="chip-toggle ${onboarding.zones.includes(z.id) ? "active" : ""}" data-zone="${z.id}">${z.name}</button>
   `).join("");
   return `
-    <label class="field-label">Which island(s) do you live on, or have a house on?</label>
-    <p class="onb-hint">Select all that apply.</p>
+    <label class="field-label">Which island(s) do you have a home on?</label>
+    <p class="onb-hint">Select all that apply — including a vacation or second home. Each one gets its own quick set of questions next.</p>
     <div class="chip-grid">${chips}</div>`;
 }
 function wireZonesStep() {
@@ -298,27 +382,37 @@ function wireAgesStep() {
   });
 }
 
-// ---- solar ----
-function solarStepMarkup() { return yesNoStepMarkup({
-  question: "Do you have solar power?",
-  yn: "onbSolar", value: onboarding.hasSolar,
-  followupLabel: "What's your system's capacity, in kWh?",
-  followupHint: "Not sure? A small home system is typically 1–3 kWh.",
-  followupId: "onbSolarKwh", followupValue: onboarding.solarKwh
-}); }
-function wireSolarStep() { wireYesNoStep("onbSolar", "onbSolarKwh",
-  v => { onboarding.hasSolar = v; }, v => { onboarding.solarKwh = v; }); }
+// ---- solar (per property) ----
+function solarStepMarkup() {
+  const p = currentProperty();
+  return propertyKicker() + yesNoStepMarkup({
+    question: `Do you have solar power at your home on ${zoneLabelForCurrentStep()}?`,
+    yn: "onbSolar", value: p.hasSolar,
+    followupLabel: "What's your system's capacity, in kWh?",
+    followupHint: "Not sure? A small home system is typically 1–3 kWh.",
+    followupId: "onbSolarKwh", followupValue: p.solarKwh
+  });
+}
+function wireSolarStep() {
+  const p = currentProperty();
+  wireYesNoStep("onbSolar", "onbSolarKwh", v => { p.hasSolar = v; }, v => { p.solarKwh = v; });
+}
 
-// ---- battery ----
-function batteryStepMarkup() { return yesNoStepMarkup({
-  question: "Do you have battery storage?",
-  yn: "onbBattery", value: onboarding.hasBattery,
-  followupLabel: "What's its capacity, in kWh?",
-  followupHint: "Not sure? A typical home battery bank is 2–10 kWh.",
-  followupId: "onbBatteryKwh", followupValue: onboarding.batteryKwh
-}); }
-function wireBatteryStep() { wireYesNoStep("onbBattery", "onbBatteryKwh",
-  v => { onboarding.hasBattery = v; }, v => { onboarding.batteryKwh = v; }); }
+// ---- battery (per property) ----
+function batteryStepMarkup() {
+  const p = currentProperty();
+  return propertyKicker() + yesNoStepMarkup({
+    question: `Do you have battery storage at your home on ${zoneLabelForCurrentStep()}?`,
+    yn: "onbBattery", value: p.hasBattery,
+    followupLabel: "What's its capacity, in kWh?",
+    followupHint: "Not sure? A typical home battery bank is 2–10 kWh.",
+    followupId: "onbBatteryKwh", followupValue: p.batteryKwh
+  });
+}
+function wireBatteryStep() {
+  const p = currentProperty();
+  wireYesNoStep("onbBattery", "onbBatteryKwh", v => { p.hasBattery = v; }, v => { p.batteryKwh = v; });
+}
 
 function yesNoStepMarkup({ question, yn, value, followupLabel, followupHint, followupId, followupValue }) {
   return `
@@ -347,56 +441,62 @@ function wireYesNoStep(ynPrefix, followupId, setFlag, setValue) {
   document.getElementById(followupId).addEventListener("input", e => setValue(Number(e.target.value) || 0));
 }
 
-// ---- medical ----
+// ---- medical (per property) ----
 function medicalStepMarkup() {
+  const p = currentProperty();
   return `
-    <label class="field-label">Does anyone in your household depend on life-saving medical equipment?</label>
+    ${propertyKicker()}
+    <label class="field-label">Does anyone rely on life-saving medical equipment at your home on ${zoneLabelForCurrentStep()}?</label>
     <p class="onb-hint">For example: an oxygen concentrator, dialysis machine, or refrigerated insulin.</p>
     <div class="yn-toggle" id="onbMedicalYN">
-      <button type="button" class="yn-btn ${onboarding.isCritical ? "active" : ""}" data-value="yes">Yes</button>
-      <button type="button" class="yn-btn ${!onboarding.isCritical ? "active" : ""}" data-value="no">No</button>
+      <button type="button" class="yn-btn ${p.isCritical ? "active" : ""}" data-value="yes">Yes</button>
+      <button type="button" class="yn-btn ${!p.isCritical ? "active" : ""}" data-value="no">No</button>
     </div>
-    <div class="onb-followup ${onboarding.isCritical ? "" : "hidden"}" id="onbMedicalFollowup">
+    <div class="onb-followup ${p.isCritical ? "" : "hidden"}" id="onbMedicalFollowup">
       <label class="field-label">What kind?</label>
-      <input type="text" class="field-input" id="onbDeviceType" placeholder="e.g. Oxygen concentrator" value="${escapeAttr(onboarding.deviceType)}">
+      <input type="text" class="field-input" id="onbDeviceType" placeholder="e.g. Oxygen concentrator" value="${escapeAttr(p.deviceType)}">
     </div>`;
 }
 function wireMedicalStep() {
+  const p = currentProperty();
   const ynEl = document.getElementById("onbMedicalYN");
   const followupEl = document.getElementById("onbMedicalFollowup");
   ynEl.querySelectorAll(".yn-btn").forEach(btn => {
     btn.addEventListener("click", () => {
       const isYes = btn.dataset.value === "yes";
-      onboarding.isCritical = isYes;
+      p.isCritical = isYes;
       followupEl.classList.toggle("hidden", !isYes);
       ynEl.querySelectorAll(".yn-btn").forEach(b => b.classList.toggle("active", b === btn));
     });
   });
-  document.getElementById("onbDeviceType").addEventListener("input", e => { onboarding.deviceType = e.target.value; });
+  document.getElementById("onbDeviceType").addEventListener("input", e => { p.deviceType = e.target.value; });
 }
 
-// ---- basics: water / food / shelter ----
+// ---- basics: water / food / shelter (per property) ----
 function basicsStepMarkup() {
+  const p = currentProperty();
   const shelters = ["sturdy", "moderate", "weak"];
   const chips = shelters.map(s => `
-    <button type="button" class="chip-toggle ${onboarding.shelter === s ? "active" : ""}" data-shelter="${s}">${s[0].toUpperCase()}${s.slice(1)}</button>
+    <button type="button" class="chip-toggle ${p.shelter === s ? "active" : ""}" data-shelter="${s}">${s[0].toUpperCase()}${s.slice(1)}</button>
   `).join("");
   return `
-    <label class="field-label">About how many days of stored water do you have?</label>
-    <input type="number" class="field-input" id="onbWaterDays" min="0" step="0.5" value="${onboarding.waterDays}">
+    ${propertyKicker()}
+    <label class="field-label">About how many days of stored water does your home on ${zoneLabelForCurrentStep()} have?</label>
+    <input type="number" class="field-input" id="onbWaterDays" min="0" step="0.5" value="${p.waterDays}">
 
     <label class="field-label">About how many days of food?</label>
-    <input type="number" class="field-input" id="onbFoodDays" min="0" step="0.5" value="${onboarding.foodDays}">
+    <input type="number" class="field-input" id="onbFoodDays" min="0" step="0.5" value="${p.foodDays}">
 
-    <label class="field-label">How sturdy is your shelter?</label>
+    <label class="field-label">How sturdy is the shelter there?</label>
     <div class="chip-grid">${chips}</div>`;
 }
 function wireBasicsStep() {
-  document.getElementById("onbWaterDays").addEventListener("input", e => { onboarding.waterDays = Number(e.target.value) || 0; });
-  document.getElementById("onbFoodDays").addEventListener("input", e => { onboarding.foodDays = Number(e.target.value) || 0; });
+  const p = currentProperty();
+  document.getElementById("onbWaterDays").addEventListener("input", e => { p.waterDays = Number(e.target.value) || 0; });
+  document.getElementById("onbFoodDays").addEventListener("input", e => { p.foodDays = Number(e.target.value) || 0; });
   document.querySelectorAll(".chip-toggle[data-shelter]").forEach(btn => {
     btn.addEventListener("click", () => {
-      onboarding.shelter = btn.dataset.shelter;
+      p.shelter = btn.dataset.shelter;
       document.querySelectorAll(".chip-toggle[data-shelter]").forEach(b => b.classList.toggle("active", b === btn));
     });
   });
@@ -404,41 +504,51 @@ function wireBasicsStep() {
 
 // ---- review ----
 function reviewStepMarkup() {
-  const zoneNames = onboarding.zones.map(id => ZONES.find(z => z.id === id).name).join(", ");
-  const rows = [
+  const householdRows = [
     ["Household", onboarding.name],
-    ["Island(s)", zoneNames],
-    ["People", `${onboarding.householdSize} (ages ${onboarding.ages.join(", ")})`],
-    ["Solar", onboarding.hasSolar ? `${onboarding.solarKwh} kWh` : "None"],
-    ["Battery", onboarding.hasBattery ? `${onboarding.batteryKwh} kWh` : "None"],
-    ["Critical need", onboarding.isCritical ? onboarding.deviceType : "None"],
-    ["Water", `${onboarding.waterDays} days`],
-    ["Food", `${onboarding.foodDays} days`],
-    ["Shelter", onboarding.shelter[0].toUpperCase() + onboarding.shelter.slice(1)]
-  ];
-  const reviewRows = rows.map(([label, value]) => `
-    <div class="review-row"><span>${label}</span><strong>${escapeHtml(String(value))}</strong></div>
-  `).join("");
+    ["People", `${onboarding.householdSize} (ages ${onboarding.ages.join(", ")})`]
+  ].map(([label, value]) => `<div class="review-row"><span>${label}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("");
 
-  const preview = onboarding.existingPhotoUrl
-    ? `<div class="photo-preview" id="onbPhotoPreview"><img src="${onboarding.existingPhotoUrl}" alt=""></div>`
-    : `<div class="photo-preview hidden" id="onbPhotoPreview"></div>`;
+  const propertyCards = onboarding.properties.map((p, i) => {
+    const zone = ZONES.find(z => z.id === p.zone);
+    const rows = [
+      ["Solar", p.hasSolar ? `${p.solarKwh} kWh` : "None"],
+      ["Battery", p.hasBattery ? `${p.batteryKwh} kWh` : "None"],
+      ["Critical need", p.isCritical ? p.deviceType : "None"],
+      ["Water", `${p.waterDays} days`],
+      ["Food", `${p.foodDays} days`],
+      ["Shelter", p.shelter[0].toUpperCase() + p.shelter.slice(1)]
+    ].map(([label, value]) => `<div class="review-row"><span>${label}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("");
+
+    const preview = p.existingPhotoUrl
+      ? `<div class="photo-preview" id="onbPhotoPreview-${i}"><img src="${p.existingPhotoUrl}" alt=""></div>`
+      : `<div class="photo-preview hidden" id="onbPhotoPreview-${i}"></div>`;
+
+    return `
+      <div class="property-card">
+        <div class="property-card-head">${zone ? zone.name : p.zone}</div>
+        <div class="review-list">${rows}</div>
+        <label class="field-label">Photo of this property (optional)</label>
+        <input type="file" class="field-input" id="onbPhoto-${i}" accept="image/*" capture="environment">
+        ${preview}
+      </div>`;
+  }).join("");
 
   return `
     <h2>You're all set</h2>
-    <div class="review-list">${reviewRows}</div>
-    <label class="field-label">Add a photo (optional)</label>
-    <input type="file" class="field-input" id="onbPhoto" accept="image/*" capture="environment">
-    ${preview}`;
+    <div class="review-list">${householdRows}</div>
+    ${propertyCards}`;
 }
 function wireReviewStep() {
-  document.getElementById("onbPhoto").addEventListener("change", e => {
-    const file = e.target.files[0];
-    if (!file) return;
-    onboarding.photoFile = file;
-    const preview = document.getElementById("onbPhotoPreview");
-    preview.classList.remove("hidden");
-    preview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="">`;
+  onboarding.properties.forEach((p, i) => {
+    document.getElementById(`onbPhoto-${i}`).addEventListener("change", e => {
+      const file = e.target.files[0];
+      if (!file) return;
+      p.photoFile = file;
+      const preview = document.getElementById(`onbPhotoPreview-${i}`);
+      preview.classList.remove("hidden");
+      preview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="">`;
+    });
   });
 }
 
@@ -448,26 +558,29 @@ function wireReviewStep() {
 async function submitOnboarding() {
   setOnboardingBusy(true);
   try {
-    let photoUrl = onboarding.existingPhotoUrl;
-    if (onboarding.photoFile) {
-      photoUrl = await uploadResidentPhoto(currentUser.id, onboarding.photoFile);
+    const propertyPayloads = [];
+    for (const p of onboarding.properties) {
+      let photoUrl = p.existingPhotoUrl;
+      if (p.photoFile) {
+        photoUrl = await uploadResidentPhoto(currentUser.id, p.photoFile);
+      }
+      propertyPayloads.push({
+        name: onboarding.name.trim(),
+        zone: p.zone,
+        household_size: onboarding.householdSize,
+        ages: onboarding.ages,
+        water: Math.round(p.waterDays * 24 * 10) / 10,
+        food: Math.round(p.foodDays * 24 * 10) / 10,
+        solar_power: p.hasSolar ? p.solarKwh : 0,
+        batteries: p.hasBattery ? p.batteryKwh : 0,
+        shelter: p.shelter,
+        is_critical: p.isCritical,
+        device_type: p.isCritical ? (p.deviceType.trim() || null) : null,
+        photo_url: photoUrl
+      });
     }
 
-    await saveMyResident(currentUser.id, {
-      name: onboarding.name.trim(),
-      zones: onboarding.zones,
-      household_size: onboarding.householdSize,
-      ages: onboarding.ages,
-      water: Math.round(onboarding.waterDays * 24 * 10) / 10,
-      food: Math.round(onboarding.foodDays * 24 * 10) / 10,
-      solar_power: onboarding.hasSolar ? onboarding.solarKwh : 0,
-      batteries: onboarding.hasBattery ? onboarding.batteryKwh : 0,
-      shelter: onboarding.shelter,
-      is_critical: onboarding.isCritical,
-      device_type: onboarding.isCritical ? (onboarding.deviceType.trim() || null) : null,
-      photo_url: photoUrl
-    });
-
+    await saveMyProperties(currentUser.id, propertyPayloads);
     await enterDashboard();
   } catch (err) {
     showOnboardingError(err.message || "Could not save your profile. Please try again.");

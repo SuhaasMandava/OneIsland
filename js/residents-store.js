@@ -5,12 +5,21 @@
  * storage bucket live here, plus the adapter that maps a database row onto
  * the shape engine.js already expects (engine.js itself is untouched).
  *
+ * One row = one property (one island). A household with a vacation home
+ * on another island has TWO rows under the same user_id — each is its own
+ * independent resource pool for the matching engine (a full solar tank at
+ * a vacation home a storm away doesn't help anyone at the primary home),
+ * which is exactly how the engine already treats any two residents. Name/
+ * household_size/ages are about the people, not the building, so they're
+ * duplicated across a household's rows rather than normalized out — a
+ * deliberate simplicity tradeoff for this project's scope.
+ *
  * Column -> engine field mapping:
  *   water, food        -> resources.water.hours / resources.food.hours.
  *     Onboarding asks for these in DAYS (a real person can answer "about
  *     how many days of water do you have?"); they're converted to hours
- *     once, at save time (see onboarding.js), so these columns store
- *     hours directly, same as before.
+ *     once, at save time (onboarding.js), so these columns store hours
+ *     directly, same as before.
  *   solar_power, batteries -> stored as raw kWh CAPACITY (what onboarding
  *     actually asks: "what's your solar system's capacity?"). Converted
  *     to the engine's "hours of power remaining" here, at read time, by
@@ -22,16 +31,12 @@
  *     (engine.js only special-cases the literal string "grid" — once a
  *     storm reaches Warning strength, grid residents are assumed to lose
  *     power entirely and fall back to a small device-battery buffer)
- *   zones[0]            -> zone (the engine and Zone Network map only
- *     understand one "home base" per resident; a household can select
- *     multiple islands during onboarding, but only the first is used for
- *     matching/mapping — see the note on `zone` in data.js)
  *   ages                -> vulnerableMembers: count of household members
  *     under CHILD_AGE_THRESHOLD or at/over ELDERLY_AGE_THRESHOLD. A
  *     simple, explainable stand-in for "needs extra care during a storm."
  *   shelter              -> shelterRating (sturdy | moderate | weak)
  *   is_critical + device_type -> specialNeeds: [{ label, resource: "power" }]
- *     (this schema tracks one critical dependency per resident, and
+ *     (this schema tracks one critical dependency per property, and
  *     assumes it's power-related — true for every critical case in the demo)
  */
 
@@ -48,8 +53,7 @@ function mapResidentRow(row) {
     id: row.id,
     userId: row.user_id,
     name: row.name,
-    zone: (row.zones && row.zones[0]) || null,
-    zones: row.zones || [],
+    zone: row.zone,
     householdSize: row.household_size || 1,
     ages,
     powerSource: independentHours > 0 ? "independent" : "grid",
@@ -67,7 +71,7 @@ function mapResidentRow(row) {
   };
 }
 
-/** Every resident on the island — public read, no auth required. */
+/** Every property on the island — public read, no auth required. */
 async function fetchResidents() {
   const { data, error } = await supabaseClient
     .from("residents")
@@ -77,20 +81,21 @@ async function fetchResidents() {
   return data.map(mapResidentRow);
 }
 
-/** The signed-in user's own row, if they've completed onboarding yet. */
-async function fetchMyResident(userId) {
+/** All of the signed-in user's own property rows (0, 1, or several). */
+async function fetchMyProperties(userId) {
   const { data, error } = await supabaseClient
     .from("residents")
     .select("*")
     .eq("user_id", userId)
-    .maybeSingle();
+    .order("created_at", { ascending: true });
   if (error) throw error;
   return data;
 }
 
 /** Uploads a photo to the public "resource-photos" bucket, returns its public URL. */
 async function uploadResidentPhoto(userId, file) {
-  const path = `${userId}/${Date.now()}-${file.name}`;
+  const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const path = `${userId}/${unique}-${file.name}`;
   const { error } = await supabaseClient.storage
     .from("resource-photos")
     .upload(path, file, { upsert: true });
@@ -100,10 +105,22 @@ async function uploadResidentPhoto(userId, file) {
   return data.publicUrl;
 }
 
-/** Creates or updates the signed-in user's single resident row. */
-async function saveMyResident(userId, fields) {
-  const { error } = await supabaseClient
+/**
+ * Replaces the signed-in user's entire set of properties with the given
+ * list. Onboarding always submits a complete snapshot (every property the
+ * wizard walked through), so "delete everything of mine, then insert the
+ * new set" is simpler and safer than trying to diff/update individual
+ * rows across edits.
+ */
+async function saveMyProperties(userId, properties) {
+  const { error: deleteError } = await supabaseClient
     .from("residents")
-    .upsert({ user_id: userId, ...fields }, { onConflict: "user_id" });
-  if (error) throw error;
+    .delete()
+    .eq("user_id", userId);
+  if (deleteError) throw deleteError;
+
+  const { error: insertError } = await supabaseClient
+    .from("residents")
+    .insert(properties.map(fields => ({ user_id: userId, ...fields })));
+  if (insertError) throw insertError;
 }

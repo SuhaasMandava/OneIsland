@@ -545,6 +545,13 @@ select.field-input { appearance: none; }
 .review-row span { color: var(--ink-faint); flex-shrink: 0; }
 .review-row strong { color: var(--ink); text-align: right; font-weight: 600; }
 
+/* One card per property — used on both the onboarding review step and
+   the Profile tab summary, since a household can now have several. */
+.property-card { border: 1px solid var(--hairline); border-radius: var(--radius); padding: 12px; margin-top: 14px; background: var(--panel-raised); }
+.property-card-head { font-weight: 700; font-size: 0.9rem; margin-bottom: 8px; color: var(--brass); }
+.property-card .review-list { margin-bottom: 12px; }
+.property-card .field-input, .property-card .photo-preview { margin-bottom: 0; }
+
 /* -----------------------------------------------------------------------
    Bottom tab bar
 ----------------------------------------------------------------------- */
