@@ -3,8 +3,8 @@
  * ------
  * UI wiring for OneIsland. Owns four top-level app modes — Landing, Auth,
  * Onboarding, Dashboard — toggled by setAppMode(), plus (inside Dashboard)
- * the four familiar screens (Console / Zone Network / Storm Mode /
- * Profile) toggled by the bottom tab bar. The actual "intelligence" lives
+ * the three familiar screens (Console / Storm Mode / Profile) toggled by
+ * the bottom tab bar. The actual "intelligence" lives
  * in engine.js — this file calls it and paints the result. Residents
  * come live from Supabase (residents-store.js); auth comes from auth.js;
  * the guided setup wizard lives in onboarding.js.
@@ -26,7 +26,6 @@ let currentForecast = [];
 let currentMatchResult = { matches: [], unresolved: [] };
 let simulationRunning = false;
 let activeTab = "console";
-let selectedZone = null;
 let handledMatchKeys = new Set(); // recommendations the user has already shared/dismissed this scenario
 
 document.addEventListener("DOMContentLoaded", init);
@@ -358,7 +357,6 @@ function recompute({ setStep }) {
 
   renderTopBar();
   renderConsole();
-  renderNetwork();
   renderStormScreen(setStep);
 }
 
@@ -500,159 +498,6 @@ function renderRecommendations() {
       });
     });
   });
-}
-
-// ------------------------------------------------------------------
-// Zone Network screen
-// ------------------------------------------------------------------
-
-const NETWORK_CENTER = { x: 150, y: 160 };
-const NETWORK_RADIUS = 95;
-
-function zonePosition(index) {
-  const angleDeg = -90 + index * (360 / ZONES.length);
-  const angleRad = (angleDeg * Math.PI) / 180;
-  return {
-    x: NETWORK_CENTER.x + NETWORK_RADIUS * Math.cos(angleRad),
-    y: NETWORK_CENTER.y + NETWORK_RADIUS * Math.sin(angleRad)
-  };
-}
-
-/** Worst-case status for a zone, used to color its network node. */
-function zoneStatus(zoneId) {
-  const rows = currentForecast.filter(r => r.resident.zone === zoneId);
-  if (rows.some(r => r.status === "CRITICAL")) return "CRITICAL";
-  if (rows.some(r => r.status === "SHORTAGE")) return "SHORTAGE";
-  if (rows.some(r => r.status === "SURPLUS")) return "SURPLUS";
-  return "BALANCED";
-}
-
-function zoneNeedCount(zoneId) {
-  return currentForecast.filter(r =>
-    r.resident.zone === zoneId && (r.status === "CRITICAL" || r.status === "SHORTAGE")
-  ).length;
-}
-
-// Hex twins of the CSS status tokens — used for SVG fill/stroke attributes,
-// since var() support in presentation attributes is inconsistent across
-// renderers. Keep these in sync with the --critical/--shortage/--balanced/
-// --surplus custom properties in css/styles.css.
-const STATUS_COLOR_HEX = {
-  CRITICAL: "#D6402E", SHORTAGE: "#B9790F",
-  BALANCED: "#1C8A72", SURPLUS: "#1C7FA6"
-};
-
-function renderNetwork() {
-  const positions = ZONES.map((z, i) => ({ zone: z, pos: zonePosition(i) }));
-
-  const rings = [55, 95, 130].map(r =>
-    `<circle class="net-ring" cx="${NETWORK_CENTER.x}" cy="${NETWORK_CENTER.y}" r="${r}"/>`
-  ).join("");
-
-  const drawnEdges = new Set();
-  const links = [];
-  positions.forEach(({ zone }) => {
-    (ZONE_ADJACENCY[zone.id] || []).forEach(neighborId => {
-      const edgeKey = [zone.id, neighborId].sort().join("|");
-      if (drawnEdges.has(edgeKey)) return;
-      drawnEdges.add(edgeKey);
-      const a = positions.find(p => p.zone.id === zone.id).pos;
-      const b = positions.find(p => p.zone.id === neighborId).pos;
-      links.push(`<line class="net-link" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`);
-    });
-  });
-
-  const nodes = positions.map(({ zone, pos }) => {
-    const status = zoneStatus(zone.id);
-    const count = zoneNeedCount(zone.id);
-    const color = STATUS_COLOR_HEX[status];
-    const selected = selectedZone === zone.id ? "selected" : "";
-    return `
-      <g class="zone-node ${selected}" data-zone="${zone.id}">
-        <circle class="node-bg" cx="${pos.x}" cy="${pos.y}" r="28" fill="${color}" fill-opacity="0.22" stroke="${color}"/>
-        <text class="node-count" x="${pos.x}" y="${pos.y + 5}" text-anchor="middle" font-size="15">${count}</text>
-        <text x="${pos.x}" y="${pos.y + 45}" text-anchor="middle" font-size="11" opacity="0.85">${zone.short}</text>
-      </g>
-    `;
-  }).join("");
-
-  const svg = document.getElementById("networkSvg");
-  svg.innerHTML = `${rings}${links.join("")}${nodes}
-    <text x="${NETWORK_CENTER.x}" y="${NETWORK_CENTER.y - 4}" text-anchor="middle" font-size="9" opacity="0.4" letter-spacing="1" fill="#82859E">VANUATU</text>`;
-
-  svg.querySelectorAll(".zone-node").forEach(node => {
-    node.addEventListener("click", () => {
-      const zoneId = node.dataset.zone;
-      selectedZone = selectedZone === zoneId ? null : zoneId;
-      renderNetwork();
-      renderZoneDetail();
-    });
-  });
-
-  renderZoneDetail();
-}
-
-function renderZoneDetail() {
-  const wrap = document.getElementById("zoneDetailWrap");
-
-  if (!selectedZone) {
-    wrap.innerHTML = `<div class="zone-hint">Tap an island to inspect households and their resource levels.</div>`;
-    return;
-  }
-
-  const zone = ZONES.find(z => z.id === selectedZone);
-  const residents = RESIDENTS.filter(r => r.zone === selectedZone);
-
-  wrap.innerHTML = `
-    <div class="zone-detail">
-      <div class="zone-detail-head">
-        <h3>${zone.name}</h3>
-        ${zone.coastal ? '<span class="zd-coastal">Coastal</span>' : ""}
-      </div>
-      <div class="zone-detail-body" id="zoneResidentBody"></div>
-    </div>
-  `;
-
-  const body = document.getElementById("zoneResidentBody");
-  residents.forEach(resident => body.appendChild(buildResidentCard(resident)));
-}
-
-function buildResidentCard(resident) {
-  const card = document.createElement("div");
-  card.className = "resident-card";
-
-  const badges = [];
-  resident.specialNeeds.forEach(n => badges.push(`<span class="badge badge-critical-need">${n.label}</span>`));
-  if (resident.vulnerableMembers > 0) badges.push(`<span class="badge badge-vulnerable">${resident.vulnerableMembers} vulnerable</span>`);
-  if (resident.shelterRating === "weak") badges.push(`<span class="badge badge-shelter-weak">Weak shelter</span>`);
-
-  const resourceRows = RESOURCE_KEYS.map(key => {
-    const row = currentForecast.find(r => r.resident.id === resident.id && r.resourceKey === key);
-    const pct = Math.min(100, Math.round((row.hours / 48) * 100));
-    return `
-      <div class="resource-row">
-        <span class="resource-label">${key}</span>
-        <div class="resource-track"><div class="resource-fill ${row.status}" style="width:${pct}%"></div></div>
-        <span class="resource-value ${row.status}">${row.hours}h</span>
-      </div>`;
-  }).join("");
-
-  const photo = resident.photoUrl
-    ? `<img class="resident-photo" src="${resident.photoUrl}" alt="">`
-    : "";
-
-  card.innerHTML = `
-    <div class="resident-card-head">
-      ${photo}
-      <div>
-        <div class="resident-name">${resident.name}</div>
-        <div class="resident-meta">${resident.powerSource} power · ${resident.shelterRating} shelter</div>
-      </div>
-    </div>
-    ${badges.length ? `<div class="badge-row">${badges.join("")}</div>` : ""}
-    <div class="resource-rows">${resourceRows}</div>
-  `;
-  return card;
 }
 
 // ------------------------------------------------------------------

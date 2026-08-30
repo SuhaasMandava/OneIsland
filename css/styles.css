@@ -368,38 +368,7 @@ section + section, .block + .block { margin-top: 16px; }
 }
 .goto-storm:active { background: rgba(18,36,185,0.10); }
 
-/* -----------------------------------------------------------------------
-   Zone Network screen
------------------------------------------------------------------------ */
-.network-frame {
-  border: 1px solid var(--hairline);
-  border-radius: var(--radius);
-  background: radial-gradient(circle at 50% 42%, rgba(28,127,166,0.08), transparent 65%), var(--panel);
-  padding: 6px;
-}
-.network-frame svg { width: 100%; height: auto; display: block; }
-.zone-node { cursor: pointer; }
-.zone-node circle.node-bg { transition: fill 0.3s var(--ease), stroke 0.3s var(--ease); stroke-width: 2; }
-.zone-node text { font-family: 'Space Grotesk', sans-serif; fill: var(--ink); pointer-events: none; }
-.zone-node .node-count { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
-.zone-node.selected circle.node-bg { stroke: var(--brass-bright); stroke-width: 3; }
-.net-link { stroke: var(--hairline-strong); stroke-width: 1.5; fill: none; }
-.net-ring { stroke: rgba(18,36,185,0.08); fill: none; }
-
-.legend-strip { display: flex; gap: 12px; flex-wrap: wrap; padding: 10px 4px 2px; font-size: 0.68rem; color: var(--ink-dim); }
-.legend-strip .lg-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; }
-
 .zone-hint { font-size: 0.76rem; color: var(--ink-faint); text-align: center; padding: 10px 8px; }
-
-.zone-detail { border: 1px solid var(--hairline); border-radius: var(--radius); background: var(--panel); overflow: hidden; }
-.zone-detail-head {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 10px 14px; border-bottom: 1px solid var(--hairline);
-  background: var(--panel-raised);
-}
-.zone-detail-head h3 { font-size: 0.88rem; }
-.zone-detail-head .zd-coastal { font-size: 0.62rem; color: var(--surplus); text-transform: uppercase; letter-spacing: 0.08em; }
-.zone-detail-body { padding: 10px 12px; }
 
 /* -----------------------------------------------------------------------
    Storm Mode screen
