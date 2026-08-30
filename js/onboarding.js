@@ -52,7 +52,7 @@ function blankProperty(zoneId) {
     hasBattery: false, batteryKwh: 3,
     isCritical: false, deviceType: "", criticalResource: "power",
     waterDays: 3, foodDays: 3, shelter: "moderate",
-    photoFile: null, existingPhotoUrl: null
+    existingPhotoUrl: null
   };
 }
 
@@ -77,7 +77,7 @@ function startOnboarding(existingRows) {
       waterDays: r.water != null ? Math.round((r.water / 24) * 10) / 10 : 3,
       foodDays: r.food != null ? Math.round((r.food / 24) * 10) / 10 : 3,
       shelter: r.shelter || "moderate",
-      photoFile: null, existingPhotoUrl: r.photo_url || null
+      existingPhotoUrl: r.photo_url || null
     }));
     onboarding.steps = buildStepSequence();
   }
@@ -475,7 +475,7 @@ function wireYesNoStep(ynPrefix, followupId, setFlag, setValue) {
       });
     });
   });
-  document.getElementById(followupId).addEventListener("input", e => setValue(Number(e.target.value) || 0));
+  document.getElementById(followupId).addEventListener("input", e => setValue(Math.max(0, Number(e.target.value) || 0)));
 }
 
 // ---- medical (per property) ----
@@ -558,8 +558,8 @@ function basicsStepMarkup() {
 }
 function wireBasicsStep() {
   const p = currentProperty();
-  document.getElementById("onbWaterDays").addEventListener("input", e => { p.waterDays = Number(e.target.value) || 0; });
-  document.getElementById("onbFoodDays").addEventListener("input", e => { p.foodDays = Number(e.target.value) || 0; });
+  document.getElementById("onbWaterDays").addEventListener("input", e => { p.waterDays = Math.max(0, Number(e.target.value) || 0); });
+  document.getElementById("onbFoodDays").addEventListener("input", e => { p.foodDays = Math.max(0, Number(e.target.value) || 0); });
   document.querySelectorAll(".chip-toggle[data-shelter]").forEach(btn => {
     btn.addEventListener("click", () => {
       p.shelter = btn.dataset.shelter;
@@ -600,6 +600,7 @@ function reviewStepMarkup() {
         <label class="field-label">Photo of this property (optional)</label>
         <input type="file" class="field-input" id="onbPhoto-${i}" accept="image/*" capture="environment">
         ${preview}
+        <p class="photo-status hidden" id="onbPhotoStatus-${i}"></p>
       </div>`;
   }).join("");
 
@@ -608,15 +609,37 @@ function reviewStepMarkup() {
     <div class="review-list">${householdRows}</div>
     ${propertyCards}`;
 }
+/**
+ * Photo uploads happen immediately on file selection, not at Finish time.
+ * That way a failed upload (bad connection, oversized file, denied camera
+ * permission, a storage policy rejection) surfaces right where the user is,
+ * as an inline retry-able message — and never blocks completing the rest
+ * of the form. Finish just uses whatever photo URL (if any) is on hand.
+ */
 function wireReviewStep() {
   onboarding.properties.forEach((p, i) => {
-    document.getElementById(`onbPhoto-${i}`).addEventListener("change", e => {
+    document.getElementById(`onbPhoto-${i}`).addEventListener("change", async e => {
       const file = e.target.files[0];
       if (!file) return;
-      p.photoFile = file;
+
       const preview = document.getElementById(`onbPhotoPreview-${i}`);
+      const status = document.getElementById(`onbPhotoStatus-${i}`);
       preview.classList.remove("hidden");
       preview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="">`;
+      status.classList.remove("hidden", "photo-status-error");
+      status.innerHTML = `<span class="loading-inline"><span class="spinner" aria-hidden="true"></span>Uploading photo&hellip;</span>`;
+
+      try {
+        p.existingPhotoUrl = await uploadResidentPhoto(currentUser.id, file);
+        status.classList.add("hidden");
+      } catch (err) {
+        console.warn("Photo upload failed — continuing without it.", err);
+        status.classList.add("photo-status-error");
+        status.textContent = "Couldn't upload this photo. You can still finish without it, or try again.";
+        preview.classList.add("hidden");
+        preview.innerHTML = "";
+        e.target.value = ""; // lets the same file be re-selected to retry
+      }
     });
   });
 }
@@ -627,28 +650,25 @@ function wireReviewStep() {
 async function submitOnboarding() {
   setOnboardingBusy(true);
   try {
-    const propertyPayloads = [];
-    for (const p of onboarding.properties) {
-      let photoUrl = p.existingPhotoUrl;
-      if (p.photoFile) {
-        photoUrl = await uploadResidentPhoto(currentUser.id, p.photoFile);
-      }
-      propertyPayloads.push({
-        name: onboarding.name.trim(),
-        zone: p.zone,
-        household_size: p.householdSize,
-        ages: p.ages,
-        water: Math.round(p.waterDays * 24 * 10) / 10,
-        food: Math.round(p.foodDays * 24 * 10) / 10,
-        solar_power: p.hasSolar ? p.solarKwh : 0,
-        batteries: p.hasBattery ? p.batteryKwh : 0,
-        shelter: p.shelter,
-        is_critical: p.isCritical,
-        device_type: p.isCritical ? (p.deviceType.trim() || null) : null,
-        critical_resource: p.isCritical ? p.criticalResource : null,
-        photo_url: photoUrl
-      });
-    }
+    // Photos are already uploaded (or failed and were skipped) as soon as
+    // they were selected — see wireReviewStep() — so a photo issue can
+    // never block finishing here; existingPhotoUrl is simply null if none
+    // uploaded successfully.
+    const propertyPayloads = onboarding.properties.map(p => ({
+      name: onboarding.name.trim(),
+      zone: p.zone,
+      household_size: p.householdSize,
+      ages: p.ages,
+      water: Math.round(p.waterDays * 24 * 10) / 10,
+      food: Math.round(p.foodDays * 24 * 10) / 10,
+      solar_power: p.hasSolar ? p.solarKwh : 0,
+      batteries: p.hasBattery ? p.batteryKwh : 0,
+      shelter: p.shelter,
+      is_critical: p.isCritical,
+      device_type: p.isCritical ? (p.deviceType.trim() || null) : null,
+      critical_resource: p.isCritical ? p.criticalResource : null,
+      photo_url: p.existingPhotoUrl
+    }));
 
     await saveMyProperties(currentUser.id, propertyPayloads);
     await enterDashboard();

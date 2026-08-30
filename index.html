@@ -118,6 +118,7 @@
           <div class="hero-severity" id="heroSeverity">&ndash;</div>
           <div class="hero-sub" id="heroSub">Loading forecast&hellip;</div>
           <div class="hero-source" id="heroSource"><span class="dot" aria-hidden="true"></span><span>Connecting</span></div>
+          <div class="weather-fallback hidden" id="weatherFallback" role="status">Live weather unavailable — using manual storm controls.</div>
         </div>
 
         <div class="console-summary" id="consoleSummary" aria-live="polite"></div>
@@ -151,7 +152,9 @@
           <span><span class="lg-dot" style="background:var(--shortage)"></span>Shortage</span>
           <span><span class="lg-dot" style="background:var(--balanced)"></span>Balanced</span>
           <span><span class="lg-dot" style="background:var(--surplus)"></span>Surplus</span>
+          <span><span class="lg-dot lg-dot-empty"></span>No residents</span>
         </div>
+        <div class="zone-hint hidden" id="networkEmptyNote"></div>
       </section>
 
       <!-- ============ SCREEN 3: STORM MODE ============ -->

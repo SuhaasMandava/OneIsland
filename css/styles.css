@@ -281,6 +281,12 @@ section + section, .block + .block { margin-top: 16px; }
 .hero-source .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--balanced); }
 .hero-source.simulated .dot { background: var(--brass); }
 
+.weather-fallback {
+  margin-top: 8px; font-size: 0.72rem; font-weight: 600; color: var(--shortage);
+  background: rgba(185,121,15,0.10); border: 1px solid rgba(185,121,15,0.30);
+  border-radius: var(--radius-sm); padding: 6px 9px; text-transform: none; letter-spacing: normal;
+}
+
 .console-summary { font-size: 0.78rem; color: var(--ink-dim); padding: 2px 2px 4px; }
 .summary-error { color: var(--critical); }
 .link-btn {
@@ -288,6 +294,19 @@ section + section, .block + .block { margin-top: 16px; }
   font: inherit; font-weight: 700; color: inherit; text-decoration: underline;
   cursor: pointer;
 }
+
+/* Inline loading state (data still in flight) and a small spinner used
+   wherever we replace a blank section with "Loading…" rather than nothing. */
+.loading-inline { display: inline-flex; align-items: center; gap: 7px; }
+.spinner {
+  width: 13px; height: 13px; border-radius: 50%;
+  border: 2px solid var(--hairline-strong); border-top-color: var(--brass);
+  animation: spin 0.7s linear infinite; flex-shrink: 0;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.photo-status { font-size: 0.72rem; color: var(--ink-faint); margin-top: 6px; }
+.photo-status.photo-status-error { color: var(--critical); }
 
 .recs-list { display: flex; flex-direction: column; gap: 14px; }
 
@@ -394,6 +413,7 @@ section + section, .block + .block { margin-top: 16px; }
 
 .legend-strip { display: flex; gap: 12px; flex-wrap: wrap; padding: 10px 4px 2px; font-size: 0.68rem; color: var(--ink-dim); }
 .legend-strip .lg-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; }
+.legend-strip .lg-dot-empty { background: transparent; border: 1.5px dashed var(--ink-faint); }
 
 .goto-storm {
   display: flex; align-items: center; justify-content: space-between;

@@ -31,7 +31,17 @@ let currentPipelineStep = 0; // last-rendered Storm Mode pipeline step, preserve
 let liveChannels = []; // active Supabase realtime subscriptions — see subscribeToLiveUpdates()
 let recentActivity = []; // confirmed transfers, newest first — see logTransfer()/renderRecentActivity()
 let residentsLoadError = false; // true when fetchResidents() failed — Console shows a retry banner instead of a falsely-reassuring "all clear"
+let weatherLoadError = false; // true when the live Open-Meteo fetch failed/timed out — Console shows a fallback banner distinct from an intentional manual simulation
 let handledMatchKeys = new Set(); // recommendations the user has already shared/dismissed this scenario
+
+/** Races a promise against a timeout so a slow/hanging Supabase request
+ *  eventually surfaces as a retry-able error instead of spinning forever. */
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`${label} timed out — check your connection.`)), ms))
+  ]);
+}
 
 document.addEventListener("DOMContentLoaded", init);
 
@@ -116,9 +126,10 @@ async function handleAuthSubmit() {
 
   const submitBtn = document.getElementById("authSubmitBtn");
   submitBtn.disabled = true;
+  submitBtn.textContent = authMode === "signup" ? "Creating account…" : "Logging in…";
   try {
-    if (authMode === "signup") await signUp(email, password);
-    else await signIn(email, password);
+    if (authMode === "signup") await withTimeout(signUp(email, password), 12000, "Sign up");
+    else await withTimeout(signIn(email, password), 12000, "Log in");
     // Routing to onboarding/dashboard happens automatically once the
     // auth state change fires — see routeAfterAuthChange().
   } catch (err) {
@@ -126,6 +137,7 @@ async function handleAuthSubmit() {
     errorEl.classList.remove("hidden");
   } finally {
     submitBtn.disabled = false;
+    submitBtn.textContent = authMode === "signup" ? "Create Account" : "Log In";
   }
 }
 
@@ -149,7 +161,7 @@ async function routeAfterAuthChange(user, event) {
 
   let existingRows;
   try {
-    existingRows = await fetchMyProperties(user.id);
+    existingRows = await withTimeout(fetchMyProperties(user.id), 12000, "Loading your account");
   } catch (err) {
     // Don't guess: routing an existing user into the first-time wizard on a
     // transient failure would let them "finish" it and have
@@ -177,18 +189,21 @@ function needsOnboarding(rows) {
 async function enterDashboard() {
   setAppMode("dashboard");
   switchTab("console");
+  showDashboardLoadingState();
 
   try {
     currentWeather = await fetchLiveWeather();
     currentSeverity = currentWeather.severity;
+    weatherLoadError = false;
   } catch (err) {
     currentWeather = simulatedWeatherFor("calm");
     currentSeverity = "calm";
+    weatherLoadError = true;
     console.warn("Live weather unavailable (no connection) — showing simulated calm baseline.", err);
   }
 
   try {
-    RESIDENTS = await fetchResidents();
+    RESIDENTS = await withTimeout(fetchResidents(), 12000, "Loading households");
     residentsLoadError = false;
   } catch (err) {
     RESIDENTS = [];
@@ -204,7 +219,7 @@ async function enterDashboard() {
   }
 
   try {
-    recentActivity = await fetchRecentTransfers(5);
+    recentActivity = await withTimeout(fetchRecentTransfers(5), 12000, "Loading recent activity");
   } catch (err) {
     recentActivity = [];
     console.warn("Could not load recent activity.", err);
@@ -214,6 +229,18 @@ async function enterDashboard() {
   recompute({ setStep: 0 });
   await renderProfileTab();
   subscribeToLiveUpdates();
+}
+
+/** Placeholder content shown the instant the dashboard mounts, before any
+ *  network call resolves — so a slow connection shows "loading", not a
+ *  blank/broken-looking screen. Every section here gets overwritten once
+ *  its real data (or a proper error/empty state) is ready. */
+function showDashboardLoadingState() {
+  document.getElementById("consoleSummary").innerHTML =
+    `<span class="loading-inline"><span class="spinner" aria-hidden="true"></span>Loading current conditions&hellip;</span>`;
+  document.getElementById("recsList").innerHTML = `<div class="ft-empty">Loading recommendations&hellip;</div>`;
+  document.getElementById("outlookList").innerHTML = `<div class="ft-empty">Loading outlook&hellip;</div>`;
+  document.getElementById("recentActivityList").innerHTML = `<div class="ft-empty">Loading activity&hellip;</div>`;
 }
 
 /**
@@ -312,9 +339,11 @@ async function resetToLiveConditions() {
   try {
     currentWeather = await fetchLiveWeather();
     currentSeverity = currentWeather.severity;
+    weatherLoadError = false;
   } catch (err) {
     currentWeather = simulatedWeatherFor("calm");
     currentSeverity = "calm";
+    weatherLoadError = true;
     console.warn("Live weather unavailable — reset to simulated calm baseline.", err);
   }
   recompute({ setStep: 0 });
@@ -387,12 +416,14 @@ function wireProfileTab() {
 
 async function renderProfileTab() {
   const container = document.getElementById("profileSummary");
-  container.innerHTML = `<p class="onb-hint">Loading your profile&hellip;</p>`;
+  container.innerHTML = `<p class="onb-hint loading-inline"><span class="spinner" aria-hidden="true"></span>Loading your profile&hellip;</p>`;
 
   try {
-    myPropertyRows = await fetchMyProperties(currentUser.id);
+    myPropertyRows = await withTimeout(fetchMyProperties(currentUser.id), 12000, "Loading your profile");
   } catch (err) {
-    container.innerHTML = `<p class="onb-hint">Could not load your profile.</p>`;
+    console.error("Could not load profile.", err);
+    container.innerHTML = `<p class="onb-hint summary-error">Could not load your profile. <button type="button" class="link-btn" id="retryProfileBtn">Retry</button></p>`;
+    document.getElementById("retryProfileBtn").addEventListener("click", renderProfileTab);
     return;
   }
   if (!myPropertyRows || myPropertyRows.length === 0) {
@@ -441,7 +472,7 @@ function capitalize(str) {
 /** Re-attempts loading household data after a failed fetch, without re-running the whole dashboard entry sequence. */
 async function retryLoadResidents() {
   try {
-    RESIDENTS = await fetchResidents();
+    RESIDENTS = await withTimeout(fetchResidents(), 12000, "Loading households");
     residentsLoadError = false;
   } catch (err) {
     RESIDENTS = [];
@@ -482,6 +513,14 @@ function zonePosition(index) {
     x: NETWORK_CENTER.x + NETWORK_RADIUS * Math.cos(angleRad),
     y: NETWORK_CENTER.y + NETWORK_RADIUS * Math.sin(angleRad)
   };
+}
+
+/** A zone with zero residents has no status at all — distinct from a zone
+ *  full of households that all happen to be BALANCED, which zoneStatus()
+ *  would otherwise return for both, making an empty zone look identical to
+ *  a healthy one. */
+function zoneHasResidents(zoneId) {
+  return RESIDENTS.some(r => r.zone === zoneId);
 }
 
 /** Worst-case status for a zone, used to color its network node. */
@@ -532,6 +571,15 @@ function renderNetwork() {
   });
 
   const nodes = positions.map(({ zone, pos }) => {
+    if (!zoneHasResidents(zone.id)) {
+      return `
+        <g class="zone-node zone-node-empty">
+          <circle class="node-bg" cx="${pos.x}" cy="${pos.y}" r="28" fill="none" stroke="#82859E" stroke-width="1.5" stroke-dasharray="4 3" opacity="0.6"/>
+          <text x="${pos.x}" y="${pos.y + 4}" text-anchor="middle" font-size="9" opacity="0.6">No data</text>
+          <text x="${pos.x}" y="${pos.y + 45}" text-anchor="middle" font-size="11" opacity="0.85">${zone.short}</text>
+        </g>
+      `;
+    }
     const status = zoneStatus(zone.id);
     const count = zoneNeedCount(zone.id);
     const color = STATUS_COLOR_HEX[status];
@@ -546,6 +594,15 @@ function renderNetwork() {
 
   svg.innerHTML = `${rings}${links.join("")}${nodes}
     <text x="${NETWORK_CENTER.x}" y="${NETWORK_CENTER.y - 4}" text-anchor="middle" font-size="9" opacity="0.4" letter-spacing="1" fill="#82859E">${escapeHtml(ISLAND.name.toUpperCase())}</text>`;
+
+  const emptyZones = ZONES.filter(z => !zoneHasResidents(z.id));
+  const emptyNote = document.getElementById("networkEmptyNote");
+  emptyNote.classList.toggle("hidden", emptyZones.length === 0);
+  if (emptyZones.length > 0) {
+    emptyNote.textContent = emptyZones.length === 1
+      ? `No residents currently in ${emptyZones[0].name}.`
+      : `No residents currently in: ${emptyZones.map(z => z.name).join(", ")}.`;
+  }
 }
 
 /**
@@ -664,6 +721,11 @@ function renderConsole() {
   const source = document.getElementById("heroSource");
   source.className = `hero-source ${w.source === "live" ? "" : "simulated"}`;
   source.innerHTML = `<span class="dot" aria-hidden="true"></span><span>${w.source === "live" ? "Live · Open-Meteo" : "Simulated scenario"}</span>`;
+
+  // Distinct from an intentional manual severity pick or "Simulate Storm"
+  // run: only shown when the live fetch itself actually failed, so the
+  // demo trigger's own simulated states never get flagged as an outage.
+  document.getElementById("weatherFallback").classList.toggle("hidden", !weatherLoadError);
 
   const summaryEl = document.getElementById("consoleSummary");
   if (residentsLoadError) {
@@ -840,7 +902,9 @@ function renderMatches() {
         </div>
       </div>
     `).join("")
-    : `<div class="zone-hint">No shortages detected yet at this severity level.</div>`;
+    : unresolved.length > 0
+      ? `<div class="zone-hint">No matches were possible at this severity &mdash; every shortage below needs outside aid.</div>`
+      : `<div class="zone-hint">No shortages detected yet at this severity level.</div>`;
 
   const unresolvedHeading = document.getElementById("unresolvedHeading");
   unresolvedHeading.classList.toggle("hidden", unresolved.length === 0);
