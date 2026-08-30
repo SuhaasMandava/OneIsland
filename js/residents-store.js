@@ -54,7 +54,7 @@ function mapResidentRow(row) {
     userId: row.user_id,
     name: row.name,
     zone: row.zone,
-    householdSize: row.household_size || 1,
+    householdSize: row.household_size != null ? row.household_size : 1, // note: `||` would wrongly coerce a valid 0 (vacation home, nobody there) back to 1
     ages,
     powerSource: independentHours > 0 ? "independent" : "grid",
     resources: {

@@ -6,14 +6,16 @@
  * editing an existing profile later from the Profile tab — same steps,
  * just pre-filled and starting past the welcome screen.
  *
- * A household answers "name" / "how many people" / "ages" ONCE (that's
- * about the people, not a building), then picks every island they have a
- * home on. Each selected island then gets its OWN full set of resource
- * questions — a vacation home on another island is a genuinely separate
- * property with its own solar/battery/water/food/shelter/medical-need
- * situation, not just another label on the same pool of resources. The
- * wizard's step list is therefore built dynamically once the islands are
- * known, repeating the same four resource questions once per property.
+ * A household answers "name" ONCE, then picks every island they have a
+ * home on. Each selected island then gets its OWN full set of questions —
+ * including household size and ages, since who's actually staying at a
+ * property varies (a vacation home is often empty — 0 is a valid answer
+ * there, meaning "nobody's currently at this one"). A vacation home is a
+ * genuinely separate property with its own occupancy AND its own solar/
+ * battery/water/food/shelter/medical-need situation, not just another
+ * label on the same shared pool. The wizard's step list is therefore
+ * built dynamically once the islands are known, repeating the same six
+ * questions once per property.
  *
  * Everything still lands in the same "residents" table via
  * saveMyProperties() (residents-store.js) and feeds the same unmodified
@@ -33,11 +35,9 @@ function defaultOnboardingState() {
   return {
     editing: false,
     stepIndex: 0,
-    steps: ["welcome", "name", "zones", "household", "ages", "review"], // rebuilt once islands are picked
+    steps: ["welcome", "name", "zones", "review"], // rebuilt once islands are picked
     name: "",
     zones: [],
-    householdSize: 1,
-    ages: [30],
     properties: [], // one entry per zone, kept in sync with `zones`
     busy: false
   };
@@ -46,6 +46,7 @@ function defaultOnboardingState() {
 function blankProperty(zoneId) {
   return {
     zone: zoneId,
+    householdSize: 1, ages: [30],
     hasSolar: false, solarKwh: 2,
     hasBattery: false, batteryKwh: 3,
     isCritical: false, deviceType: "",
@@ -62,13 +63,12 @@ function startOnboarding(existingRows) {
   if (rows.length > 0) {
     onboarding.editing = true;
     onboarding.stepIndex = 1; // skip the welcome screen when editing
-    const first = rows[0];
-    onboarding.name = first.name || "";
-    onboarding.householdSize = first.household_size || 1;
-    onboarding.ages = first.ages && first.ages.length ? first.ages.slice() : [30];
+    onboarding.name = rows[0].name || "";
     onboarding.zones = rows.map(r => r.zone);
     onboarding.properties = rows.map(r => ({
       zone: r.zone,
+      householdSize: r.household_size || 0,
+      ages: r.ages && r.ages.length ? r.ages.slice() : [],
       hasSolar: Number(r.solar_power) > 0, solarKwh: Number(r.solar_power) || 2,
       hasBattery: Number(r.batteries) > 0, batteryKwh: Number(r.batteries) || 3,
       isCritical: !!r.is_critical, deviceType: r.device_type || "",
@@ -119,11 +119,14 @@ function onboardingGoNext() {
   renderOnboardingStep();
 }
 
-/** Builds the full step list: fixed household questions, then four resource
- *  questions repeated per selected island, then a final review. */
+/** Builds the full step list: welcome/name/zones once, then six questions
+ *  (occupancy, ages, solar, battery, medical, basics) repeated per
+ *  selected island, then a final review. */
 function buildStepSequence() {
-  const steps = ["welcome", "name", "zones", "household", "ages"];
+  const steps = ["welcome", "name", "zones"];
   onboarding.zones.forEach((_zoneId, i) => {
+    steps.push({ id: "household", zoneIndex: i });
+    steps.push({ id: "ages", zoneIndex: i });
     steps.push({ id: "solar", zoneIndex: i });
     steps.push({ id: "battery", zoneIndex: i });
     steps.push({ id: "medical", zoneIndex: i });
@@ -220,7 +223,7 @@ function renderOnboardingStep() {
  *  dot, not four) so a household with several homes doesn't get an
  *  absurdly long dot row. */
 function sectionSequence() {
-  const sections = ["welcome", "name", "zones", "household", "ages"];
+  const sections = ["welcome", "name", "zones"];
   const zoneCount = Math.max(onboarding.zones.length, 1);
   for (let i = 0; i < zoneCount; i++) sections.push(`property-${i}`);
   sections.push("review");
@@ -331,53 +334,64 @@ function wireZonesStep() {
   });
 }
 
-// ---- household size ----
+// ---- household size (per property) ----
 function householdStepMarkup() {
-  return `
-    <label class="field-label">How many people live in your household?</label>
+  const p = currentProperty();
+  return propertyKicker() + `
+    <label class="field-label">How many people currently live at your home on ${zoneLabelForCurrentStep()}?</label>
+    <p class="onb-hint">Choose 0 if nobody's staying there right now — for example, an empty vacation home.</p>
     <div class="stepper">
       <button type="button" class="stepper-btn" id="onbSizeMinus">−</button>
-      <span class="stepper-value mono" id="onbSizeValue">${onboarding.householdSize}</span>
+      <span class="stepper-value mono" id="onbSizeValue">${p.householdSize}</span>
       <button type="button" class="stepper-btn" id="onbSizePlus">+</button>
     </div>`;
 }
 function wireHouseholdStep() {
+  const p = currentProperty();
   const valueEl = document.getElementById("onbSizeValue");
   document.getElementById("onbSizeMinus").addEventListener("click", () => {
-    if (onboarding.householdSize <= 1) return;
-    onboarding.householdSize--;
-    onboarding.ages.length = onboarding.householdSize;
-    valueEl.textContent = onboarding.householdSize;
+    if (p.householdSize <= 0) return;
+    p.householdSize--;
+    p.ages.length = p.householdSize;
+    valueEl.textContent = p.householdSize;
   });
   document.getElementById("onbSizePlus").addEventListener("click", () => {
-    if (onboarding.householdSize >= 12) return;
-    onboarding.householdSize++;
-    if (onboarding.ages.length < onboarding.householdSize) onboarding.ages.push(30);
-    valueEl.textContent = onboarding.householdSize;
+    if (p.householdSize >= 12) return;
+    p.householdSize++;
+    if (p.ages.length < p.householdSize) p.ages.push(30);
+    valueEl.textContent = p.householdSize;
   });
 }
 
-// ---- ages ----
+// ---- ages (per property) ----
 function agesStepMarkup() {
-  while (onboarding.ages.length < onboarding.householdSize) onboarding.ages.push(30);
-  onboarding.ages.length = onboarding.householdSize;
+  const p = currentProperty();
+  while (p.ages.length < p.householdSize) p.ages.push(30);
+  p.ages.length = p.householdSize;
 
-  const fields = onboarding.ages.map((age, i) => `
+  if (p.householdSize === 0) {
+    return propertyKicker() + `
+      <label class="field-label">Ages</label>
+      <p class="onb-hint">Nobody's currently staying at this property, so there's no one to add here.</p>`;
+  }
+
+  const fields = p.ages.map((age, i) => `
     <div class="age-field">
       <span class="age-field-label">Person ${i + 1}</span>
       <input type="number" class="field-input onb-age-input" data-index="${i}" min="0" max="110" value="${age}">
     </div>
   `).join("");
-  return `
+  return propertyKicker() + `
     <label class="field-label">What are their ages?</label>
     <p class="onb-hint">Young children and elderly members are flagged as higher priority during a storm.</p>
     <div class="age-grid">${fields}</div>`;
 }
 function wireAgesStep() {
+  const p = currentProperty();
   document.querySelectorAll(".onb-age-input").forEach(input => {
     input.addEventListener("input", e => {
       const idx = Number(e.target.dataset.index);
-      onboarding.ages[idx] = Math.max(0, Math.min(110, Number(e.target.value) || 0));
+      p.ages[idx] = Math.max(0, Math.min(110, Number(e.target.value) || 0));
     });
   });
 }
@@ -505,13 +519,13 @@ function wireBasicsStep() {
 // ---- review ----
 function reviewStepMarkup() {
   const householdRows = [
-    ["Household", onboarding.name],
-    ["People", `${onboarding.householdSize} (ages ${onboarding.ages.join(", ")})`]
+    ["Household", onboarding.name]
   ].map(([label, value]) => `<div class="review-row"><span>${label}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("");
 
   const propertyCards = onboarding.properties.map((p, i) => {
     const zone = ZONES.find(z => z.id === p.zone);
     const rows = [
+      ["People", p.householdSize > 0 ? `${p.householdSize} (ages ${p.ages.join(", ")})` : "None (vacation home)"],
       ["Solar", p.hasSolar ? `${p.solarKwh} kWh` : "None"],
       ["Battery", p.hasBattery ? `${p.batteryKwh} kWh` : "None"],
       ["Critical need", p.isCritical ? p.deviceType : "None"],
@@ -567,8 +581,8 @@ async function submitOnboarding() {
       propertyPayloads.push({
         name: onboarding.name.trim(),
         zone: p.zone,
-        household_size: onboarding.householdSize,
-        ages: onboarding.ages,
+        household_size: p.householdSize,
+        ages: p.ages,
         water: Math.round(p.waterDays * 24 * 10) / 10,
         food: Math.round(p.foodDays * 24 * 10) / 10,
         solar_power: p.hasSolar ? p.solarKwh : 0,

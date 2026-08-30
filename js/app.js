@@ -321,19 +321,15 @@ async function renderProfileTab() {
   }
 
   const first = myPropertyRows[0];
-  const householdRows = [
-    ["Household", first.name],
-    ["People", `${first.household_size} (ages ${(first.ages || []).join(", ") || "—"})`]
-  ];
-
   const householdHtml = `
     <div class="review-list">
-      ${householdRows.map(([label, value]) => `<div class="review-row"><span>${label}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("")}
+      <div class="review-row"><span>Household</span><strong>${escapeHtml(String(first.name))}</strong></div>
     </div>`;
 
   const propertyCards = myPropertyRows.map(row => {
     const zone = ZONES.find(z => z.id === row.zone);
     const rows = [
+      ["People", Number(row.household_size) > 0 ? `${row.household_size} (ages ${(row.ages || []).join(", ") || "—"})` : "None (vacation home)"],
       ["Solar", Number(row.solar_power) > 0 ? `${row.solar_power} kWh` : "None"],
       ["Battery", Number(row.batteries) > 0 ? `${row.batteries} kWh` : "None"],
       ["Critical need", row.is_critical ? row.device_type : "None"],
