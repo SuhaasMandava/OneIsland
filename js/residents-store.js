@@ -41,7 +41,10 @@
  *     or food, defaulting to "power" for rows saved before that column existed)
  */
 
-const ESSENTIAL_DRAW_KW = 0.15; // assumed average draw for essential-only emergency use: LED lighting, phone charging, a small fridge cycling
+// ESSENTIAL_DRAW_KW (assumed average draw for essential-only emergency use:
+// LED lighting, phone charging, a small fridge cycling) lives in engine.js,
+// shared with formatResourceAmount() so the capacity->hours conversion here
+// and the hours->kWh display conversion there stay in sync.
 const CHILD_AGE_THRESHOLD = 5;
 const ELDERLY_AGE_THRESHOLD = 65;
 

@@ -64,6 +64,31 @@ const RECIPIENT_TARGET_HOURS = 24;
 
 const RESOURCE_KEYS = ["water", "food", "power"];
 
+// ---------------------------------------------------------------------
+// Display units. The engine tracks every resource as "hours of runway
+// remaining" internally — that's the one common currency it needs to
+// compare unlike resources fairly when matching donors to recipients.
+// But nobody thinks in hours: a household thinks in meals of food and
+// watts/kWh of power. These constants convert the engine's internal
+// hours back into natural units for display only — they never feed back
+// into prediction, thresholds, or matching, which stay hours-based.
+// ---------------------------------------------------------------------
+const MEALS_PER_DAY = 3;
+const ESSENTIAL_DRAW_KW = 0.15; // same assumed essential-only draw used to derive power's hours in the first place (see residents-store.js)
+
+/** Turns an engine "hours remaining" figure into a natural-unit string for the given resource. */
+function formatResourceAmount(resourceKey, hours) {
+  if (resourceKey === "food") {
+    const meals = Math.max(0, Math.round((hours / 24) * MEALS_PER_DAY));
+    return `${meals} meal${meals === 1 ? "" : "s"}`;
+  }
+  if (resourceKey === "power") {
+    const kwh = Math.max(0, Math.round(hours * ESSENTIAL_DRAW_KW * 10) / 10);
+    return `${kwh} kWh`;
+  }
+  return `${hours}h`;
+}
+
 /**
  * STEP 1: Predict how many hours of a resource a resident will actually
  * have left once a given storm severity is factored in.
@@ -279,7 +304,7 @@ function buildReasoning(recipient, giver, resourceKey, transfer) {
   const reasons = [];
 
   reasons.push(
-    `${resident.name} is forecast to have only ${recipient.hours}h of ${resourceKey} left ` +
+    `${resident.name} is forecast to have only ${formatResourceAmount(resourceKey, recipient.hours)} of ${resourceKey} left ` +
     `(${recipient.status.toLowerCase()}).`
   );
   if (need) {
@@ -289,7 +314,7 @@ function buildReasoning(recipient, giver, resourceKey, transfer) {
   }
   reasons.push(
     `${giver.name} (${zoneName(giver.zone)}) has surplus ${resourceKey} and can spare ` +
-    `${transfer}h without dropping below a safe reserve.`
+    `${formatResourceAmount(resourceKey, transfer)} without dropping below a safe reserve.`
   );
 
   return reasons;

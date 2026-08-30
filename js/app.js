@@ -447,11 +447,11 @@ function renderRecommendations() {
           <div class="rec-question">Confirm this transfer?</div>
           <div class="rec-confirm-row">
             <span class="rec-confirm-name">${m.giver.name}</span>
-            <span class="rec-confirm-change loss">${giverBefore}h &rarr; ${giverAfter}h</span>
+            <span class="rec-confirm-change loss">${formatResourceAmount(m.resourceKey, giverBefore)} &rarr; ${formatResourceAmount(m.resourceKey, giverAfter)}</span>
           </div>
           <div class="rec-confirm-row">
             <span class="rec-confirm-name">${m.receiver.name}</span>
-            <span class="rec-confirm-change gain">${receiverBefore}h &rarr; ${receiverAfter}h</span>
+            <span class="rec-confirm-change gain">${formatResourceAmount(m.resourceKey, receiverBefore)} &rarr; ${formatResourceAmount(m.resourceKey, receiverAfter)}</span>
           </div>
           <div class="rec-actions">
             <button class="rec-btn rec-btn-accept" data-action="confirm">Confirm share</button>
@@ -464,7 +464,7 @@ function renderRecommendations() {
       <div class="rec-card" data-key="${key}">
         <div class="ft-kicker">Priority ${m.priorityScore} &middot; ${RESOURCE_VERBS[m.resourceKey]}</div>
         <div class="rec-question">
-          Share <strong>${m.amountHours}h of ${m.resourceKey}</strong>:
+          Share <strong>${formatResourceAmount(m.resourceKey, m.amountHours)} of ${m.resourceKey}</strong>:
           <strong>${m.giver.name}</strong> &rarr; <strong>${m.receiver.name}</strong>?
         </div>
         <ul class="rec-reasons">
@@ -541,7 +541,7 @@ function renderMatches() {
         </div>
         <div class="ticket-perf">
           <div class="ticket-meta">
-            <span>${m.amountHours}h transferred · ${m.receiverStatus.toLowerCase()}</span>
+            <span>${formatResourceAmount(m.resourceKey, m.amountHours)} transferred · ${m.receiverStatus.toLowerCase()}</span>
             <span class="priority-tag">P${m.priorityScore}</span>
           </div>
           <div class="ticket-reason">${m.reasoningPoints.join(" ")}</div>
@@ -556,7 +556,7 @@ function renderMatches() {
   document.getElementById("unresolvedList").innerHTML = unresolved.map(u => `
     <div class="unresolved-ticket">
       <strong>${u.resident.name}</strong> &mdash; ${u.status.toLowerCase()} ${u.resourceKey} shortage
-      (${u.hours}h left, priority ${u.priorityScore}). No island donor has spare capacity.
+      (${formatResourceAmount(u.resourceKey, u.hours)} left, priority ${u.priorityScore}). No island donor has spare capacity.
     </div>
   `).join("");
 }
