@@ -451,8 +451,8 @@ function zoneNeedCount(zoneId) {
 // renderers. Keep these in sync with the --critical/--shortage/--balanced/
 // --surplus custom properties in css/styles.css.
 const STATUS_COLOR_HEX = {
-  CRITICAL: "#ff5c46", SHORTAGE: "#e8a23c",
-  BALANCED: "#3aa99c", SURPLUS: "#4fb6c9"
+  CRITICAL: "#D6402E", SHORTAGE: "#B9790F",
+  BALANCED: "#1C8A72", SURPLUS: "#1C7FA6"
 };
 
 function renderNetwork() {
@@ -491,7 +491,7 @@ function renderNetwork() {
 
   const svg = document.getElementById("networkSvg");
   svg.innerHTML = `${rings}${links.join("")}${nodes}
-    <text x="${NETWORK_CENTER.x}" y="${NETWORK_CENTER.y - 4}" text-anchor="middle" font-size="9" opacity="0.4" letter-spacing="1">KAILANI</text>`;
+    <text x="${NETWORK_CENTER.x}" y="${NETWORK_CENTER.y - 4}" text-anchor="middle" font-size="9" opacity="0.4" letter-spacing="1" fill="#82859E">KAILANI</text>`;
 
   svg.querySelectorAll(".zone-node").forEach(node => {
     node.addEventListener("click", () => {
