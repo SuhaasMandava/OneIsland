@@ -143,8 +143,8 @@ button { font-family: inherit; }
   text-align: center; padding: 40px 24px 32px;
   position: relative;
 }
-.mark-lg { width: 60px; height: 60px; margin-bottom: 18px; }
-.landing-title { font-size: 2.1rem; font-weight: 700; letter-spacing: -0.005em; margin-bottom: 14px; color: var(--ocean); }
+.landing-title { margin-bottom: 14px; }
+.landing-logo { display: block; width: 100%; max-width: 260px; height: auto; margin: 0 auto; }
 .landing-tagline { font-family: 'Libre Caslon Display', Georgia, serif; font-size: 1.02rem; font-style: italic; color: var(--reef-dim); line-height: 1.5; margin: 0 0 14px; max-width: 320px; }
 .landing-copy { font-size: 0.85rem; color: var(--ink-dim); line-height: 1.55; margin: 0 0 20px; max-width: 340px; }
 .landing-badges { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-bottom: 28px; }
