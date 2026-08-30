@@ -242,7 +242,7 @@ function runMatching(forecastRows) {
         priorityScore: recipient.priorityScore,
         receiverStatus: recipient.status,
         receiverHours: recipient.hours,
-        reasoning: buildReasoning(recipient, candidateDonor.resident, resourceKey, transfer)
+        reasoningPoints: buildReasoning(recipient, candidateDonor.resident, resourceKey, transfer)
       });
 
       if (candidateDonor.spare <= 0) {
@@ -292,7 +292,7 @@ function buildReasoning(recipient, giver, resourceKey, transfer) {
     `${transfer}h without dropping below a safe reserve.`
   );
 
-  return reasons.join(" ");
+  return reasons;
 }
 
 function zoneName(zoneId) {

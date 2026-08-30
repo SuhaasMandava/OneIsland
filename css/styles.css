@@ -283,17 +283,42 @@ section + section, .block + .block { margin-top: 16px; }
 
 .console-summary { font-size: 0.78rem; color: var(--ink-dim); padding: 2px 2px 4px; }
 
-.recs-list { display: flex; flex-direction: column; gap: 10px; }
+.recs-list { display: flex; flex-direction: column; gap: 14px; }
 
 .rec-card {
   border: 1px solid var(--brass-dim);
   border-radius: var(--radius);
   background: linear-gradient(180deg, rgba(18,36,185,0.06), transparent 40%), var(--panel);
-  padding: 12px 14px;
+  padding: 16px 16px 14px;
 }
-.rec-card .rec-question { font-size: 0.86rem; margin-top: 6px; line-height: 1.35; }
+.rec-card .rec-question { font-size: 0.94rem; margin-top: 8px; line-height: 1.4; }
 .rec-card .rec-question strong { font-weight: 700; }
-.rec-actions { display: flex; gap: 8px; margin-top: 10px; }
+.rec-reasons {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.rec-reasons li {
+  position: relative;
+  padding-left: 14px;
+  font-size: 0.78rem;
+  line-height: 1.4;
+  color: var(--ink-dim);
+}
+.rec-reasons li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.5em;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--brass);
+}
+.rec-actions { display: flex; gap: 8px; margin-top: 14px; }
 .rec-btn {
   flex: 1;
   border-radius: var(--radius-sm);

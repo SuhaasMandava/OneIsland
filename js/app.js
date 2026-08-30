@@ -417,13 +417,16 @@ function renderConsole() {
   source.className = `hero-source ${w.source === "live" ? "" : "simulated"}`;
   source.innerHTML = `<span class="dot"></span><span>${w.source === "live" ? "Live · Open-Meteo" : "Simulated scenario"}</span>`;
 
-  const shortages = currentForecast.filter(r => r.status === "CRITICAL" || r.status === "SHORTAGE");
-  const unresolvedCount = currentMatchResult.unresolved.length;
-
   const summaryBits = [`${Math.round(w.tempF)}&deg;F, ${w.precipIn.toFixed(1)}&Prime; precip`];
-  summaryBits.push(shortages.length === 1 ? "1 household short on supplies" : `${shortages.length} households short on supplies`);
-  if (unresolvedCount > 0) {
-    summaryBits.push(unresolvedCount === 1 ? "1 need outside aid" : `${unresolvedCount} need outside aid`);
+  if (currentSeverity === "calm") {
+    summaryBits.push("no storm risk right now");
+  } else {
+    const shortages = currentForecast.filter(r => r.status === "CRITICAL" || r.status === "SHORTAGE");
+    const unresolvedCount = currentMatchResult.unresolved.length;
+    summaryBits.push(shortages.length === 1 ? "1 household short on supplies" : `${shortages.length} households short on supplies`);
+    if (unresolvedCount > 0) {
+      summaryBits.push(unresolvedCount === 1 ? "1 need outside aid" : `${unresolvedCount} need outside aid`);
+    }
   }
   document.getElementById("consoleSummary").innerHTML = summaryBits.join(" &middot; ");
 
@@ -439,6 +442,12 @@ const RESOURCE_VERBS = { water: "water", food: "food", power: "power" };
 
 function renderRecommendations() {
   const recsList = document.getElementById("recsList");
+
+  if (currentSeverity === "calm") {
+    recsList.innerHTML = `<div class="ft-empty">Conditions are calm &mdash; households don't need to trade resources yet. Recommendations appear once a storm watch or worse is in effect.</div>`;
+    return;
+  }
+
   const pending = currentMatchResult.matches.filter(m => !handledMatchKeys.has(matchKey(m)));
 
   if (pending.length === 0) {
@@ -452,10 +461,12 @@ function renderRecommendations() {
     <div class="rec-card" data-key="${matchKey(m)}">
       <div class="ft-kicker">Priority ${m.priorityScore} &middot; ${RESOURCE_VERBS[m.resourceKey]}</div>
       <div class="rec-question">
-        Would you like <strong>${m.giver.name}</strong> to share
-        <strong>${m.amountHours}h of ${m.resourceKey}</strong> with <strong>${m.receiver.name}</strong>?
+        Share <strong>${m.amountHours}h of ${m.resourceKey}</strong>:
+        <strong>${m.giver.name}</strong> &rarr; <strong>${m.receiver.name}</strong>?
       </div>
-      <div class="ft-reason">${m.reasoning}</div>
+      <ul class="rec-reasons">
+        ${m.reasoningPoints.map(point => `<li>${point}</li>`).join("")}
+      </ul>
       <div class="rec-actions">
         <button class="rec-btn rec-btn-accept" data-action="accept">Share now</button>
         <button class="rec-btn rec-btn-dismiss" data-action="dismiss">Not now</button>
@@ -694,7 +705,7 @@ function renderMatches() {
             <span>${m.amountHours}h transferred · ${m.receiverStatus.toLowerCase()}</span>
             <span class="priority-tag">P${m.priorityScore}</span>
           </div>
-          <div class="ticket-reason">${m.reasoning}</div>
+          <div class="ticket-reason">${m.reasoningPoints.join(" ")}</div>
         </div>
       </div>
     `).join("")
