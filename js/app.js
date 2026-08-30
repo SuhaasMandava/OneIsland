@@ -27,7 +27,6 @@ let currentMatchResult = { matches: [], unresolved: [] };
 let simulationRunning = false;
 let activeTab = "console";
 let selectedZone = null;
-let decisionLogLines = [];
 let handledMatchKeys = new Set(); // recommendations the user has already shared/dismissed this scenario
 
 document.addEventListener("DOMContentLoaded", init);
@@ -215,8 +214,7 @@ function wireControls() {
       currentWeather = currentWeather && currentWeather.source === "live" && currentSeverity === currentWeather.severity
         ? currentWeather
         : simulatedWeatherFor(currentSeverity);
-      clearLog();
-      log(`Manually set conditions to "${SEVERITY_INFO[currentSeverity].label}".`);
+      resetRecommendationState();
       recompute({ setStep: 4 });
     });
   });
@@ -224,16 +222,15 @@ function wireControls() {
 
 async function resetToLiveConditions() {
   if (simulationRunning) return;
-  clearLog();
+  resetRecommendationState();
   setButtonsDisabled(true);
   try {
     currentWeather = await fetchLiveWeather();
     currentSeverity = currentWeather.severity;
-    log("Reset to live Open-Meteo conditions.");
   } catch (err) {
     currentWeather = simulatedWeatherFor("calm");
     currentSeverity = "calm";
-    log("Live weather unavailable — reset to simulated calm baseline.");
+    console.warn("Live weather unavailable — reset to simulated calm baseline.", err);
   }
   recompute({ setStep: 0 });
   setButtonsDisabled(false);
@@ -248,7 +245,7 @@ async function runStormSimulation() {
   if (simulationRunning) return;
   simulationRunning = true;
   setButtonsDisabled(true);
-  clearLog();
+  resetRecommendationState();
   switchTab("storm");
 
   const sequence = ["calm", "watch", "warning", "severe"];
@@ -257,7 +254,6 @@ async function runStormSimulation() {
   for (let i = startIndex; i < sequence.length; i++) {
     currentSeverity = sequence[i];
     currentWeather = simulatedWeatherFor(currentSeverity);
-    log(`Conditions worsening: ${SEVERITY_INFO[currentSeverity].label} (${currentWeather.description}).`);
     recompute({ setStep: 0 });
     await delay(600);
     recompute({ setStep: 1 });
@@ -270,7 +266,6 @@ async function runStormSimulation() {
     await delay(i === sequence.length - 1 ? 0 : 450);
   }
 
-  log("Simulation complete: critical needs matched first, remaining surplus routed by priority.");
   simulationRunning = false;
   setButtonsDisabled(false);
 }
@@ -365,26 +360,6 @@ function recompute({ setStep }) {
   renderConsole();
   renderNetwork();
   renderStormScreen(setStep);
-
-  if (setStep === 4) logPipelineOutcome();
-}
-
-function logPipelineOutcome() {
-  const shortageCount = currentForecast.filter(r => r.status === "CRITICAL" || r.status === "SHORTAGE").length;
-  const criticalCount = currentForecast.filter(r => r.status === "CRITICAL").length;
-  log(`Detected ${shortageCount} shortages (${criticalCount} critical) across ${ISLAND.name}.`);
-  log(`Ranking by urgency + critical-need dependency + vulnerability + shelter quality...`);
-
-  currentMatchResult.matches.slice(0, 6).forEach(match => {
-    log(
-      `Matched: ${match.giver.name} -> ${match.receiver.name} ` +
-      `(${match.amountHours}h ${match.resourceKey}, priority ${match.priorityScore}).`
-    );
-  });
-
-  if (currentMatchResult.unresolved.length > 0) {
-    log(`${currentMatchResult.unresolved.length} need(s) could not be matched locally — flagged for outside aid.`);
-  }
 }
 
 // ------------------------------------------------------------------
@@ -429,7 +404,6 @@ function renderConsole() {
   document.getElementById("consoleSummary").innerHTML = summaryBits.join(" &middot; ");
 
   renderRecommendations();
-  renderLogTail();
 }
 
 function matchKey(m) {
@@ -519,23 +493,13 @@ function renderRecommendations() {
         } else if (action === "confirm") {
           handledMatchKeys.add(key);
           confirmingMatchKey = null;
-          log(`Shared: ${match.giver.name} -> ${match.receiver.name} (${match.amountHours}h ${match.resourceKey}).`);
         } else if (action === "dismiss") {
           handledMatchKeys.add(key);
-          log(`Deferred: ${match.giver.name} -> ${match.receiver.name} recommendation (${match.resourceKey}) not actioned.`);
         }
         renderRecommendations();
       });
     });
   });
-}
-
-function renderLogTail() {
-  const el = document.getElementById("logTail");
-  const lines = decisionLogLines.slice(-3);
-  el.innerHTML = lines.length
-    ? lines.map(line => `<div class="lt-line">${line}</div>`).join("")
-    : `<div class="lt-line log-empty">Waiting for next event&hellip;</div>`;
 }
 
 // ------------------------------------------------------------------
@@ -713,16 +677,7 @@ function renderStormScreen(activeStepIndex) {
     <div class="o-tile"><div class="o-value mono">${currentMatchResult.unresolved.length}</div><div class="o-label">Unresolved</div></div>
   `;
 
-  renderDecisionLog();
   renderMatches();
-}
-
-function renderDecisionLog() {
-  const el = document.getElementById("decisionLog");
-  el.innerHTML = decisionLogLines.length
-    ? decisionLogLines.map(line => `<div class="log-line">${line}</div>`).join("")
-    : `<div class="log-empty">Waiting for next event&hellip;</div>`;
-  el.scrollTop = el.scrollHeight;
 }
 
 function renderMatches() {
@@ -761,22 +716,10 @@ function renderMatches() {
   `).join("");
 }
 
-// ------------------------------------------------------------------
-// Decision log helpers (shared by Console tail + Storm full log)
-// ------------------------------------------------------------------
-
-function log(message) {
-  decisionLogLines.push(escapeHtml(message));
-  renderLogTail();
-  renderDecisionLog();
-}
-
-function clearLog() {
-  decisionLogLines = [];
+/** Called whenever the storm scenario changes, so stale accept/dismiss/confirm state doesn't carry over. */
+function resetRecommendationState() {
   handledMatchKeys.clear();
   confirmingMatchKey = null;
-  renderLogTail();
-  renderDecisionLog();
 }
 
 function escapeHtml(str) {
