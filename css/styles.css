@@ -377,6 +377,24 @@ section + section, .block + .block { margin-top: 16px; }
 .feature-ticket .ft-reason { font-size: 0.78rem; color: var(--ink-dim); margin-top: 6px; }
 .feature-ticket .ft-empty { font-size: 0.82rem; color: var(--ink-dim); }
 
+/* -----------------------------------------------------------------------
+   Zones screen
+----------------------------------------------------------------------- */
+.network-frame {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  background: radial-gradient(circle at 50% 42%, rgba(28,127,166,0.08), transparent 65%), var(--panel);
+  padding: 6px;
+}
+.network-frame svg { width: 100%; height: auto; display: block; }
+.zone-node text { font-family: 'Space Grotesk', sans-serif; fill: var(--ink); pointer-events: none; }
+.zone-node .node-count { font-family: 'JetBrains Mono', monospace; font-weight: 600; }
+.net-link { stroke: var(--hairline-strong); stroke-width: 1.5; fill: none; }
+.net-ring { stroke: rgba(18,36,185,0.08); fill: none; }
+
+.legend-strip { display: flex; gap: 12px; flex-wrap: wrap; padding: 10px 4px 2px; font-size: 0.68rem; color: var(--ink-dim); }
+.legend-strip .lg-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; }
+
 .goto-storm {
   display: flex; align-items: center; justify-content: space-between;
   width: 100%; border: 1px solid var(--brass-dim); border-radius: var(--radius-sm);

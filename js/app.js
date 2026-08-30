@@ -1,10 +1,10 @@
 /*
  * app.js
  * ------
- * UI wiring for OneIsland. Owns four top-level app modes — Landing, Auth,
- * Onboarding, Dashboard — toggled by setAppMode(), plus (inside Dashboard)
- * the three familiar screens (Console / Storm Mode / Profile) toggled by
- * the bottom tab bar. The actual "intelligence" lives
+ * UI wiring for OneIsland. Owns five top-level app modes — Landing, Auth,
+ * Load Error, Onboarding, Dashboard — toggled by setAppMode(), plus
+ * (inside Dashboard) the four familiar screens (Console / Zones / Storm
+ * Mode / Profile) toggled by the bottom tab bar. The actual "intelligence" lives
  * in engine.js — this file calls it and paints the result. Residents
  * come live from Supabase (residents-store.js); auth comes from auth.js;
  * the guided setup wizard lives in onboarding.js.
@@ -460,7 +460,92 @@ function recompute({ setStep }) {
   renderTopBar();
   renderConsole();
   renderOutlook();
+  renderNetwork();
   renderStormScreen(setStep);
+}
+
+// ------------------------------------------------------------------
+// Zones screen — a status-at-a-glance map. Deliberately simplified:
+// no click-to-drill household detail, just each island's worst current
+// status and how many households there are short on something, since
+// this is a geographic problem (islands, zone-adjacency routing) that
+// deserves a spatial view alongside the list-based Console/Storm screens.
+// ------------------------------------------------------------------
+
+const NETWORK_CENTER = { x: 150, y: 160 };
+const NETWORK_RADIUS = 95;
+
+function zonePosition(index) {
+  const angleDeg = -90 + index * (360 / ZONES.length);
+  const angleRad = (angleDeg * Math.PI) / 180;
+  return {
+    x: NETWORK_CENTER.x + NETWORK_RADIUS * Math.cos(angleRad),
+    y: NETWORK_CENTER.y + NETWORK_RADIUS * Math.sin(angleRad)
+  };
+}
+
+/** Worst-case status for a zone, used to color its network node. */
+function zoneStatus(zoneId) {
+  const rows = currentForecast.filter(r => r.resident.zone === zoneId);
+  if (rows.some(r => r.status === "CRITICAL")) return "CRITICAL";
+  if (rows.some(r => r.status === "SHORTAGE")) return "SHORTAGE";
+  if (rows.some(r => r.status === "SURPLUS")) return "SURPLUS";
+  return "BALANCED";
+}
+
+function zoneNeedCount(zoneId) {
+  return currentForecast.filter(r =>
+    r.resident.zone === zoneId && (r.status === "CRITICAL" || r.status === "SHORTAGE")
+  ).length;
+}
+
+// Hex twins of the CSS status tokens — used for SVG fill/stroke attributes,
+// since var() support in presentation attributes is inconsistent across
+// renderers. Keep these in sync with the --critical/--shortage/--balanced/
+// --surplus custom properties in css/styles.css.
+const STATUS_COLOR_HEX = {
+  CRITICAL: "#D6402E", SHORTAGE: "#B9790F",
+  BALANCED: "#1C8A72", SURPLUS: "#1C7FA6"
+};
+
+function renderNetwork() {
+  const svg = document.getElementById("networkSvg");
+  if (!svg) return;
+
+  const positions = ZONES.map((z, i) => ({ zone: z, pos: zonePosition(i) }));
+
+  const rings = [55, 95, 130].map(r =>
+    `<circle class="net-ring" cx="${NETWORK_CENTER.x}" cy="${NETWORK_CENTER.y}" r="${r}"/>`
+  ).join("");
+
+  const drawnEdges = new Set();
+  const links = [];
+  positions.forEach(({ zone }) => {
+    (ZONE_ADJACENCY[zone.id] || []).forEach(neighborId => {
+      const edgeKey = [zone.id, neighborId].sort().join("|");
+      if (drawnEdges.has(edgeKey)) return;
+      drawnEdges.add(edgeKey);
+      const a = positions.find(p => p.zone.id === zone.id).pos;
+      const b = positions.find(p => p.zone.id === neighborId).pos;
+      links.push(`<line class="net-link" x1="${a.x}" y1="${a.y}" x2="${b.x}" y2="${b.y}"/>`);
+    });
+  });
+
+  const nodes = positions.map(({ zone, pos }) => {
+    const status = zoneStatus(zone.id);
+    const count = zoneNeedCount(zone.id);
+    const color = STATUS_COLOR_HEX[status];
+    return `
+      <g class="zone-node">
+        <circle class="node-bg" cx="${pos.x}" cy="${pos.y}" r="28" fill="${color}" fill-opacity="0.22" stroke="${color}" stroke-width="2"/>
+        <text class="node-count" x="${pos.x}" y="${pos.y + 5}" text-anchor="middle" font-size="15">${count}</text>
+        <text x="${pos.x}" y="${pos.y + 45}" text-anchor="middle" font-size="11" opacity="0.85">${zone.short}</text>
+      </g>
+    `;
+  }).join("");
+
+  svg.innerHTML = `${rings}${links.join("")}${nodes}
+    <text x="${NETWORK_CENTER.x}" y="${NETWORK_CENTER.y - 4}" text-anchor="middle" font-size="9" opacity="0.4" letter-spacing="1" fill="#82859E">${escapeHtml(ISLAND.name.toUpperCase())}</text>`;
 }
 
 /**
