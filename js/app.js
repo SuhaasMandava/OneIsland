@@ -96,6 +96,12 @@ function wireAuthScreen() {
     updateAuthModeUI();
   });
   document.getElementById("authSubmitBtn").addEventListener("click", handleAuthSubmit);
+
+  // Inputs aren't inside a <form>, so Enter does nothing by default —
+  // without this, submitting requires reaching for the mouse.
+  const submitOnEnter = e => { if (e.key === "Enter") { e.preventDefault(); handleAuthSubmit(); } };
+  document.getElementById("authEmail").addEventListener("keydown", submitOnEnter);
+  document.getElementById("authPassword").addEventListener("keydown", submitOnEnter);
 }
 
 function enterAuthMode(mode) {
@@ -110,6 +116,12 @@ function updateAuthModeUI() {
   document.getElementById("authSubmitBtn").textContent = authMode === "signup" ? "Create Account" : "Log In";
   document.getElementById("authSwitchModeBtn").textContent = authMode === "signup"
     ? "Already have an account? Log in" : "Need an account? Sign up";
+  // "new-password" vs "current-password" tells the browser/password manager
+  // whether to suggest a freshly generated strong password (signup) or
+  // autofill the one it already has saved (login) — hardcoding one value
+  // for both meant a browser could offer to autofill an old saved password
+  // into what's actually a brand-new account's password field.
+  document.getElementById("authPassword").autocomplete = authMode === "signup" ? "new-password" : "current-password";
 }
 
 async function handleAuthSubmit() {
@@ -118,8 +130,8 @@ async function handleAuthSubmit() {
   const errorEl = document.getElementById("authError");
   errorEl.classList.add("hidden");
 
-  if (!email || password.length < 6) {
-    errorEl.textContent = "Enter an email and a password of at least 6 characters.";
+  if (!email || password.length < 8) {
+    errorEl.textContent = "Enter an email and a password of at least 8 characters.";
     errorEl.classList.remove("hidden");
     return;
   }

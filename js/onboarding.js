@@ -93,6 +93,17 @@ function startOnboarding(existingRows) {
 function wireOnboardingControls() {
   document.getElementById("onbBackBtn").addEventListener("click", onboardingGoBack);
   document.getElementById("onbNextBtn").addEventListener("click", onboardingGoNext);
+
+  // Each step's inputs get torn down and recreated on every render, so this
+  // listens on the stable container (delegation) rather than re-wiring per
+  // step — without it, Enter in a text field does nothing, same issue as
+  // the auth screen.
+  document.getElementById("onbStepContainer").addEventListener("keydown", e => {
+    if (e.key !== "Enter") return;
+    if (e.target.tagName !== "INPUT" || e.target.type === "file") return;
+    e.preventDefault();
+    onboardingGoNext();
+  });
 }
 
 function onboardingGoBack() {
@@ -638,14 +649,35 @@ function reviewStepMarkup() {
  * as an inline retry-able message — and never blocks completing the rest
  * of the form. Finish just uses whatever photo URL (if any) is on hand.
  */
+const MAX_PHOTO_BYTES = 8 * 1024 * 1024; // 8MB — generous for a phone photo, small enough that one careless upload can't quietly eat storage/bandwidth
+
 function wireReviewStep() {
   onboarding.properties.forEach((p, i) => {
     document.getElementById(`onbPhoto-${i}`).addEventListener("change", async e => {
       const file = e.target.files[0];
       if (!file) return;
 
-      const preview = document.getElementById(`onbPhotoPreview-${i}`);
       const status = document.getElementById(`onbPhotoStatus-${i}`);
+
+      // Reject obviously-wrong files before they ever touch the network —
+      // the <input accept="image/*"> is only a picker hint, not enforcement,
+      // so a user (or a script) can still hand this a non-image or a huge file.
+      if (!file.type.startsWith("image/")) {
+        status.classList.remove("hidden");
+        status.classList.add("photo-status-error");
+        status.textContent = "That doesn't look like an image file. Choose a photo instead.";
+        e.target.value = "";
+        return;
+      }
+      if (file.size > MAX_PHOTO_BYTES) {
+        status.classList.remove("hidden");
+        status.classList.add("photo-status-error");
+        status.textContent = `That photo is too large (max ${MAX_PHOTO_BYTES / (1024 * 1024)}MB). Try a smaller one.`;
+        e.target.value = "";
+        return;
+      }
+
+      const preview = document.getElementById(`onbPhotoPreview-${i}`);
       preview.classList.remove("hidden");
       preview.innerHTML = `<img src="${URL.createObjectURL(file)}" alt="">`;
       status.classList.remove("hidden", "photo-status-error");

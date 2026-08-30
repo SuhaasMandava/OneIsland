@@ -55,7 +55,7 @@
   --terminal-border: rgba(191, 227, 222, 0.20);
 
   /* -- desktop backdrop (behind the phone-shaped shell) -- */
-  --desktop-backdrop: #D3E1E6;
+  --desktop-backdrop: #00008B;
 
   --radius: 10px;
   --radius-sm: 5px;
@@ -359,31 +359,6 @@ section + section, .block + .block { margin-top: 16px; }
 }
 .rec-card .rec-question { font-size: 0.94rem; margin-top: 8px; line-height: 1.4; }
 .rec-card .rec-question strong { font-weight: 700; }
-.rec-reasons {
-  list-style: none;
-  margin: 12px 0 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-.rec-reasons li {
-  position: relative;
-  padding-left: 14px;
-  font-size: 0.78rem;
-  line-height: 1.4;
-  color: var(--ink-dim);
-}
-.rec-reasons li::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 0.5em;
-  width: 4px;
-  height: 4px;
-  border-radius: 50%;
-  background: var(--reef);
-}
 .rec-contact {
   margin-top: 12px;
   padding: 10px 12px;
@@ -460,6 +435,10 @@ section + section, .block + .block { margin-top: 16px; }
 .legend-strip { display: flex; gap: 12px; flex-wrap: wrap; padding: 10px 4px 2px; font-size: 0.68rem; color: var(--ink-dim); }
 .legend-strip .lg-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 4px; vertical-align: middle; }
 .legend-strip .lg-dot-empty { background: transparent; border: 1.5px dashed var(--ink-faint); }
+.legend-strip .lg-dot-critical { background: var(--critical); }
+.legend-strip .lg-dot-shortage { background: var(--shortage); }
+.legend-strip .lg-dot-balanced { background: var(--balanced); }
+.legend-strip .lg-dot-surplus { background: var(--surplus); }
 
 .goto-storm {
   display: flex; align-items: center; justify-content: space-between;

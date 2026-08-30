@@ -99,10 +99,23 @@ drop policy if exists "residents_insert_own" on public.residents;
 drop policy if exists "residents_update_own" on public.residents;
 drop policy if exists "residents_delete_own" on public.residents;
 
--- Anyone (including anonymous visitors) can read every property — the
--- matching engine needs the full picture across islands to find surpluses.
+-- Any SIGNED-IN user can read every property — the matching engine needs
+-- the full picture across islands to find surpluses. Restricted to
+-- `authenticated` (not the public/anon role) because these rows now carry
+-- real contact info (phone, address): an anonymous visitor with no account
+-- should not be able to pull every household's phone number straight off
+-- the public REST API. The app's own UI additionally scopes what a given
+-- user is ever SHOWN to matches that actually involve their own property
+-- (see isMine()/involvesMe() in app.js) — this policy is the server-side
+-- floor under that, not a substitute for it: it stops anonymous scraping,
+-- but any signed-in user's own client can still query every row directly,
+-- since there's no server-side record of who the engine currently matches
+-- to whom (matches are computed live, not stored). Closing that fully
+-- would need matches persisted server-side or a security-definer function
+-- computing them — out of scope for now, noted for a future pass.
 create policy "residents_read_all"
   on public.residents for select
+  to authenticated
   using (true);
 
 -- A signed-in user may only create rows for themselves.
@@ -169,10 +182,13 @@ alter table public.transfers enable row level security;
 drop policy if exists "transfers_read_all" on public.transfers;
 drop policy if exists "transfers_insert_authenticated" on public.transfers;
 
--- Anyone can read the activity log — it's community-wide coordination
--- history, the same visibility as the residents table itself.
+-- Any signed-in user can read the activity log — community-wide
+-- coordination history, same visibility as the residents table itself, and
+-- restricted to `authenticated` for the same reason: it names real
+-- households and shouldn't be scrapeable by an anonymous visitor.
 create policy "transfers_read_all"
   on public.transfers for select
+  to authenticated
   using (true);
 
 -- Any signed-in user can log a confirmed share (there's no "own" resident

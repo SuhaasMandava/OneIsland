@@ -4,6 +4,12 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <meta name="theme-color" content="#F6EFDD">
+<!-- Defense-in-depth against injected scripts: even if a stored string ever
+     slipped past escapeHtml() somewhere, this stops it from loading or
+     running anything from outside the small set of origins the app
+     actually talks to. frame-ancestors/X-Frame-Options can't be set via
+     <meta> — set those at the hosting layer (e.g. Vercel headers) too. -->
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://cdn.jsdelivr.net; style-src 'self' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.supabase.co; connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.open-meteo.com; object-src 'none'; base-uri 'self'; form-action 'self';">
 <title>OneIsland — Resource Intelligence</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -43,7 +49,7 @@
       <input type="email" id="authEmail" class="field-input" autocomplete="email" placeholder="you@example.com">
 
       <label class="field-label">Password</label>
-      <input type="password" id="authPassword" class="field-input" autocomplete="current-password" placeholder="At least 6 characters">
+      <input type="password" id="authPassword" class="field-input" autocomplete="current-password" placeholder="At least 8 characters">
 
       <div class="auth-error hidden" id="authError"></div>
 
@@ -144,10 +150,10 @@
         </div>
 
         <div class="legend-strip">
-          <span><span class="lg-dot" style="background:var(--critical)"></span>Critical</span>
-          <span><span class="lg-dot" style="background:var(--shortage)"></span>Shortage</span>
-          <span><span class="lg-dot" style="background:var(--balanced)"></span>Balanced</span>
-          <span><span class="lg-dot" style="background:var(--surplus)"></span>Surplus</span>
+          <span><span class="lg-dot lg-dot-critical"></span>Critical</span>
+          <span><span class="lg-dot lg-dot-shortage"></span>Shortage</span>
+          <span><span class="lg-dot lg-dot-balanced"></span>Balanced</span>
+          <span><span class="lg-dot lg-dot-surplus"></span>Surplus</span>
           <span><span class="lg-dot lg-dot-empty"></span>No residents</span>
         </div>
         <div class="zone-hint hidden" id="networkEmptyNote"></div>

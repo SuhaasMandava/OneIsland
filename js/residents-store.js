@@ -105,7 +105,11 @@ async function fetchMyProperties(userId) {
 /** Uploads a photo to the public "resource-photos" bucket, returns its public URL. */
 async function uploadResidentPhoto(userId, file) {
   const unique = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const path = `${userId}/${unique}-${file.name}`;
+  // file.name is whatever the OS/browser reports for the picked file —
+  // untrusted input. Strip it down to safe characters before it becomes
+  // part of a storage path, rather than trusting it as-is.
+  const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_").slice(-80);
+  const path = `${userId}/${unique}-${safeName}`;
   const { error } = await supabaseClient.storage
     .from("resource-photos")
     .upload(path, file, { upsert: true });
