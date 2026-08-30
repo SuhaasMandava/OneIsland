@@ -204,3 +204,25 @@ create policy "resource_photos_delete_own"
   on storage.objects for delete
   to authenticated
   using (bucket_id = 'resource-photos' and owner = auth.uid());
+
+-- 5. Realtime ----------------------------------------------------------
+-- Lets every open dashboard update live when any household's resources
+-- change or a new transfer is confirmed elsewhere (another tab, another
+-- device, another judge's laptop), instead of only on next reload — see
+-- subscribeToLiveUpdates() in js/app.js. Guarded with an existence check
+-- since `alter publication ... add table` errors if run twice.
+do $$
+begin
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'residents'
+  ) then
+    alter publication supabase_realtime add table public.residents;
+  end if;
+  if not exists (
+    select 1 from pg_publication_tables
+    where pubname = 'supabase_realtime' and schemaname = 'public' and tablename = 'transfers'
+  ) then
+    alter publication supabase_realtime add table public.transfers;
+  end if;
+end $$;

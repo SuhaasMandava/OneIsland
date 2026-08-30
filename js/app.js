@@ -26,6 +26,8 @@ let currentForecast = [];
 let currentMatchResult = { matches: [], unresolved: [] };
 let simulationRunning = false;
 let activeTab = "console";
+let currentPipelineStep = 0; // last-rendered Storm Mode pipeline step, preserved across realtime refreshes
+let liveChannels = []; // active Supabase realtime subscriptions — see subscribeToLiveUpdates()
 let recentActivity = []; // confirmed transfers, newest first — see logTransfer()/renderRecentActivity()
 let handledMatchKeys = new Set(); // recommendations the user has already shared/dismissed this scenario
 
@@ -186,6 +188,7 @@ async function enterDashboard() {
 
   recompute({ setStep: 0 });
   await renderProfileTab();
+  subscribeToLiveUpdates();
 }
 
 /**
@@ -344,6 +347,7 @@ function renderAuthStrip() {
     <button class="as-logout" id="logoutBtn" type="button">Log out</button>
   `;
   document.getElementById("logoutBtn").addEventListener("click", async () => {
+    teardownLiveUpdates();
     try { await signOut(); } catch (err) { console.error(err); }
   });
 }
@@ -411,12 +415,58 @@ function capitalize(str) {
 
 /** Runs the engine for currentSeverity and re-renders every screen. */
 function recompute({ setStep }) {
+  currentPipelineStep = setStep;
   currentForecast = predictConditions(RESIDENTS, currentSeverity, currentWeather);
   currentMatchResult = runMatching(currentForecast);
 
   renderTopBar();
   renderConsole();
   renderStormScreen(setStep);
+}
+
+/**
+ * Subscribes to live Supabase changes so every open dashboard — another
+ * browser tab, another device, another judge's laptop — reflects a
+ * household edit or a confirmed transfer without needing a manual reload.
+ * Idempotent: tears down any previous subscriptions first, so calling this
+ * again (e.g. after re-entering the dashboard) never stacks up channels.
+ */
+function subscribeToLiveUpdates() {
+  teardownLiveUpdates();
+
+  const residentsChannel = supabaseClient
+    .channel("residents-live")
+    .on("postgres_changes", { event: "*", schema: "public", table: "residents" }, async () => {
+      try {
+        RESIDENTS = await fetchResidents();
+      } catch (err) {
+        console.warn("Live residents update failed to refresh.", err);
+        return;
+      }
+      recompute({ setStep: currentPipelineStep });
+      if (activeTab === "profile") renderProfileTab();
+    })
+    .subscribe();
+
+  const transfersChannel = supabaseClient
+    .channel("transfers-live")
+    .on("postgres_changes", { event: "INSERT", schema: "public", table: "transfers" }, async () => {
+      try {
+        recentActivity = await fetchRecentTransfers(5);
+      } catch (err) {
+        console.warn("Live activity update failed to refresh.", err);
+        return;
+      }
+      renderRecentActivity();
+    })
+    .subscribe();
+
+  liveChannels = [residentsChannel, transfersChannel];
+}
+
+function teardownLiveUpdates() {
+  liveChannels.forEach(channel => supabaseClient.removeChannel(channel));
+  liveChannels = [];
 }
 
 // ------------------------------------------------------------------
