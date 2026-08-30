@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>OneIsland — Resource Intelligence</title>
+<link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+<header class="app-header">
+  <div class="brand">
+    <span class="brand-mark" aria-hidden="true">&#127966;</span>
+    <div>
+      <h1>OneIsland</h1>
+      <p class="tagline">Resource intelligence for <span id="islandName">Kailani Island</span></p>
+    </div>
+  </div>
+
+  <div class="weather-bar" id="weatherBar">
+    <span class="weather-chip" id="weatherSourceChip">Loading conditions&hellip;</span>
+  </div>
+
+  <div class="storm-badge" id="stormStatusBadge">
+    <span class="storm-badge-dot"></span>
+    <span id="stormStatusLabel">Loading&hellip;</span>
+  </div>
+</header>
+
+<main>
+
+  <section class="panel control-panel">
+    <div class="control-panel-row">
+      <div class="control-panel-copy">
+        <h2>Storm Response Simulator</h2>
+        <p>
+          Live conditions feed the prediction engine automatically. Use the button below to
+          fast-forward through a worsening storm and watch the full pipeline run:
+          conditions&nbsp;&rarr; prediction&nbsp;&rarr; matching&nbsp;&rarr; prioritization&nbsp;&rarr; outcome.
+        </p>
+      </div>
+      <div class="control-panel-actions">
+        <button id="simulateBtn" class="btn btn-primary">&#9889; Simulate Storm</button>
+        <button id="resetBtn" class="btn btn-ghost">Reset to Live Conditions</button>
+      </div>
+    </div>
+
+    <div class="severity-chips" id="severityChips">
+      <button class="severity-chip" data-severity="calm">Calm</button>
+      <button class="severity-chip" data-severity="watch">Storm Watch</button>
+      <button class="severity-chip" data-severity="warning">Storm Warning</button>
+      <button class="severity-chip" data-severity="severe">Severe Storm</button>
+    </div>
+
+    <ol class="pipeline" id="pipelineSteps">
+      <li class="step" data-step="0"><span class="step-index">1</span><span class="step-label">Live Conditions</span></li>
+      <li class="step" data-step="1"><span class="step-index">2</span><span class="step-label">Predict Impact</span></li>
+      <li class="step" data-step="2"><span class="step-index">3</span><span class="step-label">Detect Shortages &amp; Surplus</span></li>
+      <li class="step" data-step="3"><span class="step-index">4</span><span class="step-label">Match &amp; Prioritize</span></li>
+      <li class="step" data-step="4"><span class="step-index">5</span><span class="step-label">Outcome</span></li>
+    </ol>
+  </section>
+
+  <section class="panel summary-panel">
+    <div class="summary-stats" id="summaryStats"></div>
+  </section>
+
+  <section class="main-grid">
+
+    <div class="panel roster-panel">
+      <h2>Resident &amp; Resource Roster</h2>
+      <p class="panel-subtitle">Grouped by neighborhood. Bars show forecast hours remaining under current storm conditions.</p>
+      <div id="residentRoster" class="roster"></div>
+    </div>
+
+    <div class="panel intelligence-panel">
+      <h2>AI Decision Log</h2>
+      <p class="panel-subtitle">Every line below is produced by a fixed, explainable rule — not a black box.</p>
+      <div id="decisionLog" class="decision-log"></div>
+
+      <h3>Matches (highest priority first)</h3>
+      <div id="matchesList" class="matches-list"></div>
+
+      <h3 id="unresolvedHeading" class="hidden">Needs Outside Aid</h3>
+      <div id="unresolvedList" class="unresolved-list"></div>
+    </div>
+
+  </section>
+
+</main>
+
+<footer class="app-footer">
+  <p>OneIsland &middot; built for the weekend hackathon &middot; Track 2: AI, Automation &amp; Logic</p>
+</footer>
+
+<script src="js/data.js"></script>
+<script src="js/weather.js"></script>
+<script src="js/engine.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
