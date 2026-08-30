@@ -30,6 +30,7 @@ let activeTab = "console";
 let currentPipelineStep = 0; // last-rendered Storm Mode pipeline step, preserved across realtime refreshes
 let liveChannels = []; // active Supabase realtime subscriptions — see subscribeToLiveUpdates()
 let recentActivity = []; // confirmed transfers, newest first — see logTransfer()/renderRecentActivity()
+let residentsLoadError = false; // true when fetchResidents() failed — Console shows a retry banner instead of a falsely-reassuring "all clear"
 let handledMatchKeys = new Set(); // recommendations the user has already shared/dismissed this scenario
 
 document.addEventListener("DOMContentLoaded", init);
@@ -37,6 +38,7 @@ document.addEventListener("DOMContentLoaded", init);
 async function init() {
   wireLanding();
   wireAuthScreen();
+  wireLoadErrorScreen();
   wireOnboardingControls();
   wireTabs();
   wireControls();
@@ -44,6 +46,13 @@ async function init() {
 
   onAuthChange(routeAfterAuthChange);
   await initAuth();
+}
+
+function wireLoadErrorScreen() {
+  document.getElementById("loadErrorRetryBtn").addEventListener("click", () => routeAfterAuthChange(currentUser, "SIGNED_IN"));
+  document.getElementById("loadErrorLogoutBtn").addEventListener("click", async () => {
+    try { await signOut(); } catch (err) { console.error(err); }
+  });
 }
 
 // ------------------------------------------------------------------
@@ -138,11 +147,17 @@ async function routeAfterAuthChange(user, event) {
     return;
   }
 
-  let existingRows = [];
+  let existingRows;
   try {
     existingRows = await fetchMyProperties(user.id);
   } catch (err) {
-    console.error(err);
+    // Don't guess: routing an existing user into the first-time wizard on a
+    // transient failure would let them "finish" it and have
+    // saveMyProperties() delete their real rows and replace them with a
+    // blank re-fill. Show a retry screen instead of picking a mode.
+    console.error("Could not load this account's properties — refusing to guess whether onboarding is needed.", err);
+    setAppMode("loaderror");
+    return;
   }
 
   if (needsOnboarding(existingRows)) {
@@ -174,8 +189,10 @@ async function enterDashboard() {
 
   try {
     RESIDENTS = await fetchResidents();
+    residentsLoadError = false;
   } catch (err) {
     RESIDENTS = [];
+    residentsLoadError = true;
     console.error("Could not load residents from Supabase — check js/config.js for your publishable key.", err);
   }
 
@@ -421,6 +438,19 @@ function capitalize(str) {
   return str ? str[0].toUpperCase() + str.slice(1) : str;
 }
 
+/** Re-attempts loading household data after a failed fetch, without re-running the whole dashboard entry sequence. */
+async function retryLoadResidents() {
+  try {
+    RESIDENTS = await fetchResidents();
+    residentsLoadError = false;
+  } catch (err) {
+    RESIDENTS = [];
+    residentsLoadError = true;
+    console.error("Retry failed — still could not load residents from Supabase.", err);
+  }
+  recompute({ setStep: currentPipelineStep });
+}
+
 /** Runs the engine for currentSeverity and re-renders every screen. */
 function recompute({ setStep }) {
   currentPipelineStep = setStep;
@@ -548,20 +578,28 @@ function renderConsole() {
 
   const source = document.getElementById("heroSource");
   source.className = `hero-source ${w.source === "live" ? "" : "simulated"}`;
-  source.innerHTML = `<span class="dot"></span><span>${w.source === "live" ? "Live · Open-Meteo" : "Simulated scenario"}</span>`;
+  source.innerHTML = `<span class="dot" aria-hidden="true"></span><span>${w.source === "live" ? "Live · Open-Meteo" : "Simulated scenario"}</span>`;
 
-  const summaryBits = [`${Math.round(w.tempF)}&deg;F, ${w.precipIn.toFixed(1)}&Prime; precip`];
-  if (currentSeverity === "calm") {
-    summaryBits.push("no storm risk right now");
+  const summaryEl = document.getElementById("consoleSummary");
+  if (residentsLoadError) {
+    summaryEl.innerHTML = `<span class="summary-error">Could not load household data — showing an incomplete picture. <button type="button" class="link-btn" id="retryResidentsBtn">Retry</button></span>`;
+    document.getElementById("retryResidentsBtn").addEventListener("click", retryLoadResidents);
+  } else if (RESIDENTS.length === 0) {
+    summaryEl.textContent = "No households on file yet for this community.";
   } else {
-    const shortages = currentForecast.filter(r => r.status === "CRITICAL" || r.status === "SHORTAGE");
-    const unresolvedCount = currentMatchResult.unresolved.length;
-    summaryBits.push(shortages.length === 1 ? "1 household short on supplies" : `${shortages.length} households short on supplies`);
-    if (unresolvedCount > 0) {
-      summaryBits.push(unresolvedCount === 1 ? "1 need outside aid" : `${unresolvedCount} need outside aid`);
+    const summaryBits = [`${Math.round(w.tempF)}&deg;F, ${w.precipIn.toFixed(1)}&Prime; precip`];
+    if (currentSeverity === "calm") {
+      summaryBits.push("no storm risk right now");
+    } else {
+      const shortages = currentForecast.filter(r => r.status === "CRITICAL" || r.status === "SHORTAGE");
+      const unresolvedCount = currentMatchResult.unresolved.length;
+      summaryBits.push(shortages.length === 1 ? "1 household short on supplies" : `${shortages.length} households short on supplies`);
+      if (unresolvedCount > 0) {
+        summaryBits.push(unresolvedCount === 1 ? "1 need outside aid" : `${unresolvedCount} need outside aid`);
+      }
     }
+    summaryEl.innerHTML = summaryBits.join(" &middot; ");
   }
-  document.getElementById("consoleSummary").innerHTML = summaryBits.join(" &middot; ");
 
   renderRecommendations();
 }

@@ -282,6 +282,12 @@ section + section, .block + .block { margin-top: 16px; }
 .hero-source.simulated .dot { background: var(--brass); }
 
 .console-summary { font-size: 0.78rem; color: var(--ink-dim); padding: 2px 2px 4px; }
+.summary-error { color: var(--critical); }
+.link-btn {
+  background: none; border: none; padding: 0; margin-left: 4px;
+  font: inherit; font-weight: 700; color: inherit; text-decoration: underline;
+  cursor: pointer;
+}
 
 .recs-list { display: flex; flex-direction: column; gap: 14px; }
 

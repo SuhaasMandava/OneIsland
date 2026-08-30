@@ -57,6 +57,20 @@
     </div>
   </div>
 
+  <!-- ============ MODE: LOAD ERROR ============ -->
+  <!-- Shown instead of routing into onboarding when we can't confirm
+       whether this account already has a profile — guessing wrong would
+       show the first-time wizard to a returning user and risk overwriting
+       their real data on submit (see routeAfterAuthChange() in app.js). -->
+  <div class="app-mode" id="mode-loaderror">
+    <div class="auth-screen">
+      <h2>Couldn&rsquo;t load your account</h2>
+      <p class="onb-hint">This is usually a connection hiccup. Your data hasn&rsquo;t been touched — check your connection and try again.</p>
+      <button class="btn btn-primary" id="loadErrorRetryBtn" type="button">Try Again</button>
+      <button class="btn btn-text" id="loadErrorLogoutBtn" type="button">Log out</button>
+    </div>
+  </div>
+
   <!-- ============ MODE: ONBOARDING ============ -->
   <div class="app-mode" id="mode-onboarding">
     <div class="onb-shell">
