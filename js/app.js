@@ -192,7 +192,12 @@ function wireTabs() {
 
 function switchTab(tab) {
   activeTab = tab;
-  document.querySelectorAll(".tab-btn").forEach(btn => btn.classList.toggle("active", btn.dataset.tab === tab));
+  document.querySelectorAll(".tab-btn").forEach(btn => {
+    const isActive = btn.dataset.tab === tab;
+    btn.classList.toggle("active", isActive);
+    if (isActive) btn.setAttribute("aria-current", "page");
+    else btn.removeAttribute("aria-current");
+  });
   document.querySelectorAll(".screen").forEach(screen => {
     screen.classList.toggle("active", screen.id === `screen-${tab}`);
   });
@@ -507,14 +512,20 @@ function renderRecommendations() {
 
 function renderStormScreen(activeStepIndex) {
   document.querySelectorAll(".severity-chip").forEach(chip => {
-    chip.classList.toggle("active", chip.dataset.severity === currentSeverity);
+    const isActive = chip.dataset.severity === currentSeverity;
+    chip.classList.toggle("active", isActive);
+    chip.setAttribute("aria-pressed", String(isActive));
   });
 
   document.querySelectorAll(".pv-step").forEach(stepEl => {
     const idx = Number(stepEl.dataset.step);
     stepEl.classList.remove("active", "done");
+    stepEl.removeAttribute("aria-current");
     if (idx < activeStepIndex) stepEl.classList.add("done");
-    else if (idx === activeStepIndex) stepEl.classList.add("active");
+    else if (idx === activeStepIndex) {
+      stepEl.classList.add("active");
+      stepEl.setAttribute("aria-current", "step");
+    }
   });
 
   document.getElementById("outcomeStrip").innerHTML = `

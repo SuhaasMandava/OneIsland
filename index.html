@@ -85,7 +85,7 @@
         <div class="place" id="islandPlace">Vanuatu</div>
       </div>
       <div class="signal">
-        <div class="signal-bars" id="signalBars"><i></i><i></i><i></i><i></i></div>
+        <div class="signal-bars" id="signalBars" aria-hidden="true"><i></i><i></i><i></i><i></i></div>
         <span class="signal-label" id="signalLabel">&ndash;</span>
       </div>
     </header>
@@ -100,20 +100,20 @@
       <section class="screen active" id="screen-console">
         <div class="screen-title">Console</div>
 
-        <div class="hero-readout">
+        <div class="hero-readout" role="status" aria-live="polite">
           <div class="hero-severity" id="heroSeverity">&ndash;</div>
           <div class="hero-sub" id="heroSub">Loading forecast&hellip;</div>
-          <div class="hero-source" id="heroSource"><span class="dot"></span><span>Connecting</span></div>
+          <div class="hero-source" id="heroSource"><span class="dot" aria-hidden="true"></span><span>Connecting</span></div>
         </div>
 
-        <div class="console-summary" id="consoleSummary"></div>
+        <div class="console-summary" id="consoleSummary" aria-live="polite"></div>
 
         <div class="section-label">Recommended actions</div>
-        <div class="recs-list" id="recsList"></div>
+        <div class="recs-list" id="recsList" aria-live="polite"></div>
 
-        <button class="goto-storm" id="gotoStormBtn">
+        <button class="goto-storm" id="gotoStormBtn" type="button">
           <span>Open Storm Mode</span>
-          <span class="mono">&rarr;</span>
+          <span class="mono" aria-hidden="true">&rarr;</span>
         </button>
       </section>
 
@@ -121,32 +121,32 @@
       <section class="screen" id="screen-storm">
         <div class="screen-title">Storm Mode</div>
 
-        <div class="block severity-row" id="severityChips">
-          <button class="severity-chip" data-severity="calm">Calm</button>
-          <button class="severity-chip" data-severity="watch">Watch</button>
-          <button class="severity-chip" data-severity="warning">Warning</button>
-          <button class="severity-chip" data-severity="severe">Severe</button>
+        <div class="block severity-row" id="severityChips" role="group" aria-label="Storm severity">
+          <button class="severity-chip" data-severity="calm" type="button" aria-pressed="false">Calm</button>
+          <button class="severity-chip" data-severity="watch" type="button" aria-pressed="false">Watch</button>
+          <button class="severity-chip" data-severity="warning" type="button" aria-pressed="false">Warning</button>
+          <button class="severity-chip" data-severity="severe" type="button" aria-pressed="false">Severe</button>
         </div>
 
-        <button id="simulateBtn" class="btn btn-primary">Simulate Storm</button>
-        <button id="resetBtn" class="btn btn-text">Reset to live conditions</button>
+        <button id="simulateBtn" class="btn btn-primary" type="button">Simulate Storm</button>
+        <button id="resetBtn" class="btn btn-text" type="button">Reset to live conditions</button>
 
         <div class="section-label">Pipeline</div>
         <ol class="pipeline-v" id="pipelineSteps">
-          <li class="pv-step" data-step="0"><span class="pv-rail"><span class="pv-dot"></span></span><span class="pv-body"><div class="pv-label">Live Conditions</div><div class="pv-desc">Read current storm severity</div></span></li>
-          <li class="pv-step" data-step="1"><span class="pv-rail"><span class="pv-dot"></span></span><span class="pv-body"><div class="pv-label">Predict Impact</div><div class="pv-desc">Forecast hours of supply remaining</div></span></li>
-          <li class="pv-step" data-step="2"><span class="pv-rail"><span class="pv-dot"></span></span><span class="pv-body"><div class="pv-label">Detect Shortages &amp; Surplus</div><div class="pv-desc">Classify every household resource</div></span></li>
-          <li class="pv-step" data-step="3"><span class="pv-rail"><span class="pv-dot"></span></span><span class="pv-body"><div class="pv-label">Match &amp; Prioritize</div><div class="pv-desc">Rank by urgency, route by zone</div></span></li>
-          <li class="pv-step" data-step="4"><span class="pv-rail"><span class="pv-dot"></span></span><span class="pv-body"><div class="pv-label">Outcome</div><div class="pv-desc">Critical needs protected first</div></span></li>
+          <li class="pv-step" data-step="0"><span class="pv-rail"><span class="pv-dot" aria-hidden="true"></span></span><span class="pv-body"><div class="pv-label">Live Conditions</div><div class="pv-desc">Read current storm severity</div></span></li>
+          <li class="pv-step" data-step="1"><span class="pv-rail"><span class="pv-dot" aria-hidden="true"></span></span><span class="pv-body"><div class="pv-label">Predict Impact</div><div class="pv-desc">Forecast hours of supply remaining</div></span></li>
+          <li class="pv-step" data-step="2"><span class="pv-rail"><span class="pv-dot" aria-hidden="true"></span></span><span class="pv-body"><div class="pv-label">Detect Shortages &amp; Surplus</div><div class="pv-desc">Classify every household resource</div></span></li>
+          <li class="pv-step" data-step="3"><span class="pv-rail"><span class="pv-dot" aria-hidden="true"></span></span><span class="pv-body"><div class="pv-label">Match &amp; Prioritize</div><div class="pv-desc">Rank by urgency, route by zone</div></span></li>
+          <li class="pv-step" data-step="4"><span class="pv-rail"><span class="pv-dot" aria-hidden="true"></span></span><span class="pv-body"><div class="pv-label">Outcome</div><div class="pv-desc">Critical needs protected first</div></span></li>
         </ol>
 
-        <div class="block outcome-strip" id="outcomeStrip"></div>
+        <div class="block outcome-strip" id="outcomeStrip" role="status" aria-live="polite"></div>
 
         <div class="section-label">Matches, highest priority first</div>
-        <div id="matchesList"></div>
+        <div id="matchesList" aria-live="polite"></div>
 
         <div class="section-label hidden" id="unresolvedHeading">Needs outside aid</div>
-        <div id="unresolvedList"></div>
+        <div id="unresolvedList" aria-live="polite"></div>
       </section>
 
       <!-- ============ SCREEN 4: PROFILE ============ -->
@@ -159,17 +159,17 @@
     </main>
 
     <!-- Bottom tab bar -->
-    <nav class="tabbar">
-      <button class="tab-btn active" data-tab="console">
-        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke-width="1.6"/><path d="M12 12 L15.5 8.5" stroke-width="1.6" stroke-linecap="round"/></svg>
+    <nav class="tabbar" aria-label="Main">
+      <button class="tab-btn active" data-tab="console" type="button" aria-current="page">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8" stroke-width="1.6"/><path d="M12 12 L15.5 8.5" stroke-width="1.6" stroke-linecap="round"/></svg>
         Console
       </button>
-      <button class="tab-btn" data-tab="storm">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M4 13 h9 M4 13 a4 4 0 1 0 3-6.5" stroke-width="1.6" stroke-linecap="round"/><path d="M4 18 h13 M4 18 a3.2 3.2 0 1 0 2.4-5.3" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <button class="tab-btn" data-tab="storm" type="button">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 13 h9 M4 13 a4 4 0 1 0 3-6.5" stroke-width="1.6" stroke-linecap="round"/><path d="M4 18 h13 M4 18 a3.2 3.2 0 1 0 2.4-5.3" stroke-width="1.6" stroke-linecap="round"/></svg>
         Storm
       </button>
-      <button class="tab-btn" data-tab="profile">
-        <svg viewBox="0 0 24 24" fill="none"><circle cx="12" cy="8.5" r="3.2" stroke-width="1.6"/><path d="M5.5 19 a6.5 6.5 0 0 1 13 0" stroke-width="1.6" stroke-linecap="round"/></svg>
+      <button class="tab-btn" data-tab="profile" type="button">
+        <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="8.5" r="3.2" stroke-width="1.6"/><path d="M5.5 19 a6.5 6.5 0 0 1 13 0" stroke-width="1.6" stroke-linecap="round"/></svg>
         Profile
       </button>
     </nav>

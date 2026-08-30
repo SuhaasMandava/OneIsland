@@ -510,7 +510,7 @@ section + section, .block + .block { margin-top: 16px; }
   border-radius: var(--radius-sm); background: var(--panel); color: var(--ink);
   font-family: inherit; font-size: 0.9rem; padding: 8px 10px;
 }
-.field-input:focus { outline: none; border-color: var(--brass); }
+.field-input:focus { outline: none; border-color: var(--brass); box-shadow: 0 0 0 3px rgba(184,140,45,0.35); }
 input.field-input[type="file"] { padding: 9px 8px; font-size: 0.76rem; color: var(--ink-dim); }
 select.field-input { appearance: none; }
 

@@ -334,7 +334,7 @@ function wireNameStep() {
 // ---- zones ----
 function zonesStepMarkup() {
   const chips = ZONES.map(z => `
-    <button type="button" class="chip-toggle ${onboarding.zones.includes(z.id) ? "active" : ""}" data-zone="${z.id}">${z.name}</button>
+    <button type="button" class="chip-toggle ${onboarding.zones.includes(z.id) ? "active" : ""}" data-zone="${z.id}" aria-pressed="${onboarding.zones.includes(z.id)}">${z.name}</button>
   `).join("");
   return `
     <label class="field-label">Which island(s) do you have a home on?</label>
@@ -348,7 +348,8 @@ function wireZonesStep() {
       const idx = onboarding.zones.indexOf(id);
       if (idx >= 0) onboarding.zones.splice(idx, 1);
       else onboarding.zones.push(id);
-      btn.classList.toggle("active");
+      const nowActive = btn.classList.toggle("active");
+      btn.setAttribute("aria-pressed", String(nowActive));
     });
   });
 }
@@ -360,9 +361,9 @@ function householdStepMarkup() {
     <label class="field-label">How many people currently live at your home on ${zoneLabelForCurrentStep()}?</label>
     <p class="onb-hint">Choose 0 if nobody's staying there right now — for example, an empty vacation home.</p>
     <div class="stepper">
-      <button type="button" class="stepper-btn" id="onbSizeMinus">−</button>
-      <span class="stepper-value mono" id="onbSizeValue">${p.householdSize}</span>
-      <button type="button" class="stepper-btn" id="onbSizePlus">+</button>
+      <button type="button" class="stepper-btn" id="onbSizeMinus" aria-label="Decrease household size">&minus;</button>
+      <span class="stepper-value mono" id="onbSizeValue" aria-live="polite">${p.householdSize}</span>
+      <button type="button" class="stepper-btn" id="onbSizePlus" aria-label="Increase household size">+</button>
     </div>`;
 }
 function wireHouseholdStep() {
@@ -450,9 +451,9 @@ function wireBatteryStep() {
 function yesNoStepMarkup({ question, yn, value, followupLabel, followupHint, followupId, followupValue }) {
   return `
     <label class="field-label">${question}</label>
-    <div class="yn-toggle" id="${yn}YN">
-      <button type="button" class="yn-btn ${value ? "active" : ""}" data-value="yes">Yes</button>
-      <button type="button" class="yn-btn ${!value ? "active" : ""}" data-value="no">No</button>
+    <div class="yn-toggle" id="${yn}YN" role="group">
+      <button type="button" class="yn-btn ${value ? "active" : ""}" data-value="yes" aria-pressed="${!!value}">Yes</button>
+      <button type="button" class="yn-btn ${!value ? "active" : ""}" data-value="no" aria-pressed="${!value}">No</button>
     </div>
     <div class="onb-followup ${value ? "" : "hidden"}" id="${yn}Followup">
       <label class="field-label">${followupLabel}</label>
@@ -468,7 +469,10 @@ function wireYesNoStep(ynPrefix, followupId, setFlag, setValue) {
       const isYes = btn.dataset.value === "yes";
       setFlag(isYes);
       followupEl.classList.toggle("hidden", !isYes);
-      ynEl.querySelectorAll(".yn-btn").forEach(b => b.classList.toggle("active", b === btn));
+      ynEl.querySelectorAll(".yn-btn").forEach(b => {
+        b.classList.toggle("active", b === btn);
+        b.setAttribute("aria-pressed", String(b === btn));
+      });
     });
   });
   document.getElementById(followupId).addEventListener("input", e => setValue(Number(e.target.value) || 0));
@@ -484,16 +488,16 @@ const CRITICAL_RESOURCE_OPTIONS = [
 function medicalStepMarkup() {
   const p = currentProperty();
   const resourceChips = CRITICAL_RESOURCE_OPTIONS.map(opt => `
-    <button type="button" class="chip-toggle ${p.criticalResource === opt.value ? "active" : ""}" data-critical-resource="${opt.value}">${opt.label}</button>
+    <button type="button" class="chip-toggle ${p.criticalResource === opt.value ? "active" : ""}" data-critical-resource="${opt.value}" aria-pressed="${p.criticalResource === opt.value}">${opt.label}</button>
   `).join("");
   const activeHint = CRITICAL_RESOURCE_OPTIONS.find(opt => opt.value === p.criticalResource) || CRITICAL_RESOURCE_OPTIONS[0];
   return `
     ${propertyKicker()}
     <label class="field-label">Does anyone rely on a critical need at your home on ${zoneLabelForCurrentStep()}?</label>
     <p class="onb-hint">For example: an oxygen concentrator, dialysis machine, refrigerated insulin, or infant formula.</p>
-    <div class="yn-toggle" id="onbMedicalYN">
-      <button type="button" class="yn-btn ${p.isCritical ? "active" : ""}" data-value="yes">Yes</button>
-      <button type="button" class="yn-btn ${!p.isCritical ? "active" : ""}" data-value="no">No</button>
+    <div class="yn-toggle" id="onbMedicalYN" role="group">
+      <button type="button" class="yn-btn ${p.isCritical ? "active" : ""}" data-value="yes" aria-pressed="${p.isCritical}">Yes</button>
+      <button type="button" class="yn-btn ${!p.isCritical ? "active" : ""}" data-value="no" aria-pressed="${!p.isCritical}">No</button>
     </div>
     <div class="onb-followup ${p.isCritical ? "" : "hidden"}" id="onbMedicalFollowup">
       <label class="field-label">What kind?</label>
@@ -512,7 +516,10 @@ function wireMedicalStep() {
       const isYes = btn.dataset.value === "yes";
       p.isCritical = isYes;
       followupEl.classList.toggle("hidden", !isYes);
-      ynEl.querySelectorAll(".yn-btn").forEach(b => b.classList.toggle("active", b === btn));
+      ynEl.querySelectorAll(".yn-btn").forEach(b => {
+        b.classList.toggle("active", b === btn);
+        b.setAttribute("aria-pressed", String(b === btn));
+      });
     });
   });
   document.getElementById("onbDeviceType").addEventListener("input", e => { p.deviceType = e.target.value; });
@@ -522,7 +529,10 @@ function wireMedicalStep() {
   resourceEl.querySelectorAll(".chip-toggle").forEach(chip => {
     chip.addEventListener("click", () => {
       p.criticalResource = chip.dataset.criticalResource;
-      resourceEl.querySelectorAll(".chip-toggle").forEach(c => c.classList.toggle("active", c === chip));
+      resourceEl.querySelectorAll(".chip-toggle").forEach(c => {
+        c.classList.toggle("active", c === chip);
+        c.setAttribute("aria-pressed", String(c === chip));
+      });
       hintEl.textContent = CRITICAL_RESOURCE_OPTIONS.find(opt => opt.value === p.criticalResource).hint;
     });
   });
@@ -533,7 +543,7 @@ function basicsStepMarkup() {
   const p = currentProperty();
   const shelters = ["sturdy", "moderate", "weak"];
   const chips = shelters.map(s => `
-    <button type="button" class="chip-toggle ${p.shelter === s ? "active" : ""}" data-shelter="${s}">${s[0].toUpperCase()}${s.slice(1)}</button>
+    <button type="button" class="chip-toggle ${p.shelter === s ? "active" : ""}" data-shelter="${s}" aria-pressed="${p.shelter === s}">${s[0].toUpperCase()}${s.slice(1)}</button>
   `).join("");
   return `
     ${propertyKicker()}
@@ -553,7 +563,10 @@ function wireBasicsStep() {
   document.querySelectorAll(".chip-toggle[data-shelter]").forEach(btn => {
     btn.addEventListener("click", () => {
       p.shelter = btn.dataset.shelter;
-      document.querySelectorAll(".chip-toggle[data-shelter]").forEach(b => b.classList.toggle("active", b === btn));
+      document.querySelectorAll(".chip-toggle[data-shelter]").forEach(b => {
+        b.classList.toggle("active", b === btn);
+        b.setAttribute("aria-pressed", String(b === btn));
+      });
     });
   });
 }
