@@ -1,0 +1,9 @@
+{
+  "name": "oneisland",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OneIsland — resource-intelligence for storm-exposed island communities",
+  "scripts": {
+    "test": "node --test tests/engine.test.js"
+  }
+}
