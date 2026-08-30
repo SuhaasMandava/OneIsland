@@ -244,10 +244,11 @@ function showDashboardLoadingState() {
 }
 
 /**
- * Persists a confirmed share to Supabase (see recordTransfer() in
- * residents-store.js) and prepends it to the on-screen activity log right
- * away, rather than waiting on the round-trip — the confirmation itself
- * already told the user it succeeded, so the log should feel instant too.
+ * Persists a "marked as contacted" entry to Supabase (see recordTransfer()
+ * in residents-store.js) and prepends it to the on-screen activity log
+ * right away, rather than waiting on the round-trip. This only records
+ * that a contact was made — the actual transfer happens off-app, by the
+ * phone call the recommendation's contact info was there for.
  */
 function logTransfer(match) {
   const entry = {
@@ -273,7 +274,7 @@ function renderRecentActivity() {
   if (!container) return;
 
   if (recentActivity.length === 0) {
-    container.innerHTML = `<div class="ft-empty">No shares confirmed yet — accepted recommendations will show up here.</div>`;
+    container.innerHTML = `<div class="ft-empty">No contacts made yet — households you've marked as contacted will show up here.</div>`;
     return;
   }
 
@@ -435,6 +436,7 @@ async function renderProfileTab() {
   const householdHtml = `
     <div class="review-list">
       <div class="review-row"><span>Household</span><strong>${escapeHtml(String(first.name))}</strong></div>
+      <div class="review-row"><span>Phone</span><strong>${escapeHtml(String(first.phone || "—"))}</strong></div>
       <div class="review-row"><span>Community</span><strong>${escapeHtml(ISLAND.name)}</strong></div>
     </div>`;
 
@@ -447,7 +449,8 @@ async function renderProfileTab() {
       ["Critical need", row.is_critical ? row.device_type : "None"],
       ["Water", `${Math.round((row.water / 24) * 10) / 10} days`],
       ["Food", `${Math.round((row.food / 24) * 10) / 10} days`],
-      ["Shelter", capitalize(row.shelter)]
+      ["Shelter", capitalize(row.shelter)],
+      ["Address", row.address || "—"]
     ];
     const photo = row.photo_url
       ? `<img class="resident-photo profile-photo" src="${row.photo_url}" alt="">`
@@ -755,20 +758,36 @@ function matchKey(m) {
   return `${m.giver.id}|${m.receiver.id}|${m.resourceKey}`;
 }
 
-const RESOURCE_VERBS = { water: "water", food: "food", power: "power" };
-let confirmingMatchKey = null; // rec card currently showing the before/after confirmation
-
 function residentHours(resident, resourceKey) {
   const row = currentForecast.find(r => r.resident.id === resident.id && r.resourceKey === resourceKey);
   return row ? row.hours : 0;
+}
+
+/** Digits-and-plus-only href for a tel: link — dialers handle this better
+ *  than a formatted display string, and it sidesteps any attribute-escaping
+ *  concerns since the result can only ever contain [0-9+]. */
+function telHref(phone) {
+  return "tel:" + phone.replace(/[^0-9+]/g, "");
+}
+
+/** A resident's phone/address, or an honest "not on file" fallback — used
+ *  everywhere a match tells someone who to actually call, since matching
+ *  only ever produces a recommendation, never an automatic transfer. */
+function contactBlock(resident) {
+  const phone = resident.phone
+    ? `<a class="rec-contact-phone" href="${telHref(resident.phone)}">${escapeHtml(resident.phone)}</a>`
+    : `<span class="rec-contact-missing">No phone on file</span>`;
+  const address = resident.address
+    ? `<div class="rec-contact-address">${escapeHtml(resident.address)}</div>`
+    : `<div class="rec-contact-missing">No address on file</div>`;
+  return `${phone}${address}`;
 }
 
 function renderRecommendations() {
   const recsList = document.getElementById("recsList");
 
   if (currentSeverity === "calm") {
-    confirmingMatchKey = null;
-    recsList.innerHTML = `<div class="ft-empty">Conditions are calm &mdash; households don't need to trade resources yet. Recommendations appear once a storm watch or worse is in effect.</div>`;
+    recsList.innerHTML = `<div class="ft-empty">Conditions are calm &mdash; no one needs to be contacted yet. Recommendations appear once a storm watch or worse is in effect.</div>`;
     return;
   }
 
@@ -776,49 +795,38 @@ function renderRecommendations() {
 
   if (pending.length === 0) {
     recsList.innerHTML = currentMatchResult.matches.length
-      ? `<div class="ft-empty">All recommended transfers for this scenario have been handled.</div>`
+      ? `<div class="ft-empty">All recommended contacts for this scenario have been handled.</div>`
       : `<div class="ft-empty">No shortages detected at this severity &mdash; every household is self-sufficient.</div>`;
     return;
   }
 
   recsList.innerHTML = pending.slice(0, 5).map(m => {
     const key = matchKey(m);
-    if (key === confirmingMatchKey) {
-      const giverBefore = residentHours(m.giver, m.resourceKey);
-      const receiverBefore = residentHours(m.receiver, m.resourceKey);
-      const giverAfter = Math.max(0, Math.round((giverBefore - m.amountHours) * 10) / 10);
-      const receiverAfter = Math.round((receiverBefore + m.amountHours) * 10) / 10;
-      return `
-        <div class="rec-card" data-key="${key}">
-          <div class="ft-kicker">Confirm &middot; ${RESOURCE_VERBS[m.resourceKey]}</div>
-          <div class="rec-question">Confirm this transfer?</div>
-          <div class="rec-confirm-row">
-            <span class="rec-confirm-name">${m.giver.name}</span>
-            <span class="rec-confirm-change loss">${formatResourceAmount(m.resourceKey, giverBefore)} &rarr; ${formatResourceAmount(m.resourceKey, giverAfter)}</span>
-          </div>
-          <div class="rec-confirm-row">
-            <span class="rec-confirm-name">${m.receiver.name}</span>
-            <span class="rec-confirm-change gain">${formatResourceAmount(m.resourceKey, receiverBefore)} &rarr; ${formatResourceAmount(m.resourceKey, receiverAfter)}</span>
-          </div>
-          <div class="rec-actions">
-            <button class="rec-btn rec-btn-accept" data-action="confirm">Confirm share</button>
-            <button class="rec-btn rec-btn-dismiss" data-action="cancel">Cancel</button>
-          </div>
-        </div>
-      `;
-    }
+    const giverBefore = residentHours(m.giver, m.resourceKey);
+    const receiverBefore = residentHours(m.receiver, m.resourceKey);
+    const giverAfter = Math.max(0, Math.round((giverBefore - m.amountHours) * 10) / 10);
+    const receiverAfter = Math.round((receiverBefore + m.amountHours) * 10) / 10;
     return `
       <div class="rec-card" data-key="${key}">
-        <div class="ft-kicker">Priority ${m.priorityScore} &middot; ${RESOURCE_VERBS[m.resourceKey]}</div>
-        <div class="rec-question">
-          Share <strong>${formatResourceAmount(m.resourceKey, m.amountHours)} of ${m.resourceKey}</strong>:
-          <strong>${m.giver.name}</strong> &rarr; <strong>${m.receiver.name}</strong>?
+        <div class="ft-kicker">${m.receiverStatus === "CRITICAL" ? "Critical" : "Shortage"} &middot; ${m.resourceKey}</div>
+        <div class="rec-question"><strong>${escapeHtml(m.receiver.name)}</strong> needs ${formatResourceAmount(m.resourceKey, m.amountHours)} of ${m.resourceKey}.</div>
+
+        <div class="rec-contact">
+          <div class="rec-contact-label">Call ${escapeHtml(m.giver.name)} to arrange it</div>
+          ${contactBlock(m.giver)}
         </div>
-        <ul class="rec-reasons">
-          ${m.reasoningPoints.map(point => `<li>${point}</li>`).join("")}
-        </ul>
+
+        <div class="rec-confirm-row">
+          <span class="rec-confirm-name">${escapeHtml(m.giver.name)}</span>
+          <span class="rec-confirm-change loss">${formatResourceAmount(m.resourceKey, giverBefore)} &rarr; ${formatResourceAmount(m.resourceKey, giverAfter)}</span>
+        </div>
+        <div class="rec-confirm-row">
+          <span class="rec-confirm-name">${escapeHtml(m.receiver.name)}</span>
+          <span class="rec-confirm-change gain">${formatResourceAmount(m.resourceKey, receiverBefore)} &rarr; ${formatResourceAmount(m.resourceKey, receiverAfter)}</span>
+        </div>
+
         <div class="rec-actions">
-          <button class="rec-btn rec-btn-accept" data-action="accept">Share now</button>
+          <button class="rec-btn rec-btn-accept" data-action="contacted">Mark as contacted</button>
           <button class="rec-btn rec-btn-dismiss" data-action="dismiss">Not now</button>
         </div>
       </div>
@@ -831,17 +839,8 @@ function renderRecommendations() {
     card.querySelectorAll(".rec-btn").forEach(btn => {
       btn.addEventListener("click", () => {
         const action = btn.dataset.action;
-        if (action === "accept") {
-          confirmingMatchKey = key;
-        } else if (action === "cancel") {
-          confirmingMatchKey = null;
-        } else if (action === "confirm") {
-          handledMatchKeys.add(key);
-          confirmingMatchKey = null;
-          logTransfer(match);
-        } else if (action === "dismiss") {
-          handledMatchKeys.add(key);
-        }
+        handledMatchKeys.add(key);
+        if (action === "contacted") logTransfer(match);
         renderRecommendations();
       });
     });
@@ -887,18 +886,23 @@ function renderMatches() {
       <div class="ticket receiver-${m.receiverStatus}">
         <div class="ticket-top">
           <div class="ticket-flow">
-            <span class="tf-name">${m.giver.name}</span>
+            <span class="tf-name">${escapeHtml(m.giver.name)}</span>
             <span class="tf-arrow">&rarr;</span>
-            <span class="tf-name">${m.receiver.name}</span>
+            <span class="tf-name">${escapeHtml(m.receiver.name)}</span>
           </div>
           <span class="stamp">${m.resourceKey}</span>
         </div>
         <div class="ticket-perf">
           <div class="ticket-meta">
-            <span>${formatResourceAmount(m.resourceKey, m.amountHours)} transferred · ${m.receiverStatus.toLowerCase()}</span>
+            <span>${formatResourceAmount(m.resourceKey, m.amountHours)} needed · ${m.receiverStatus.toLowerCase()}</span>
             <span class="priority-tag">P${m.priorityScore}</span>
           </div>
-          <div class="ticket-reason">${m.reasoningPoints.join(" ")}</div>
+          <div class="ticket-contact">
+            <span class="ticket-contact-label">Contact ${escapeHtml(m.giver.name)}:</span>
+            ${m.giver.phone
+              ? `<a class="ticket-contact-phone" href="${telHref(m.giver.phone)}">${escapeHtml(m.giver.phone)}</a>`
+              : `<span class="rec-contact-missing">No phone on file</span>`}
+          </div>
         </div>
       </div>
     `).join("")
@@ -917,10 +921,9 @@ function renderMatches() {
   `).join("");
 }
 
-/** Called whenever the storm scenario changes, so stale accept/dismiss/confirm state doesn't carry over. */
+/** Called whenever the storm scenario changes, so stale contacted/dismissed state doesn't carry over. */
 function resetRecommendationState() {
   handledMatchKeys.clear();
-  confirmingMatchKey = null;
 }
 
 function escapeHtml(str) {

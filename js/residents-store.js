@@ -39,6 +39,10 @@
  *     [{ label, resource }] (this schema tracks one critical dependency per
  *     property; critical_resource says whether it depends on power, water,
  *     or food, defaulting to "power" for rows saved before that column existed)
+ *   phone, address      -> phone, address. Shown to whoever the matching
+ *     engine pairs this property with, so coordinating a share happens by
+ *     an actual phone call, not an in-app "trade" button — the engine only
+ *     ever produces a recommendation, never moves a resource by itself.
  */
 
 // ESSENTIAL_DRAW_KW (assumed average draw for essential-only emergency use:
@@ -71,6 +75,8 @@ function mapResidentRow(row) {
     specialNeeds: row.is_critical && row.device_type
       ? [{ label: row.device_type, resource: row.critical_resource || "power" }]
       : [],
+    phone: row.phone || null,
+    address: row.address || null,
     photoUrl: row.photo_url
   };
 }

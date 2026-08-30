@@ -40,6 +40,8 @@ create table if not exists public.residents (
   device_type     text,
   critical_resource text default 'power'
                     check (critical_resource is null or critical_resource in ('power','water','food')),
+  phone           text,  -- contact number, shown to a matched donor/recipient so coordination happens by a real call, not an in-app "trade" click
+  address         text,  -- this property's physical address, shown alongside phone for the same reason
   photo_url       text,
   created_at      timestamptz not null default now()
 );
@@ -84,6 +86,11 @@ alter table public.residents drop constraint if exists residents_critical_resour
 alter table public.residents add constraint residents_critical_resource_check
   check (critical_resource is null or critical_resource in ('power','water','food'));
 
+-- Contact info: a match is a recommendation to call/visit someone, not an
+-- in-app instant trade, so every property needs a way to actually reach them.
+alter table public.residents add column if not exists phone text;
+alter table public.residents add column if not exists address text;
+
 -- 2. Row Level Security ----------------------------------------------------
 alter table public.residents enable row level security;
 
@@ -121,20 +128,23 @@ create policy "residents_delete_own"
 -- demonstrate the multi-property flow out of the box.
 delete from public.residents where user_id is null;
 
+-- Phone/address below are FAKE demo contact details (fictional Vanuatu-style
+-- numbers and addresses) — not real people or places — so the "contact this
+-- household" UI has something to show for the seeded demo residents.
 insert into public.residents
-  (name, zone, household_size, ages, water, food, solar_power, batteries, shelter, is_critical, device_type, critical_resource)
-select v.name, v.zone, v.household_size, v.ages, v.water, v.food, v.solar_power, v.batteries, v.shelter, v.is_critical, v.device_type, v.critical_resource
+  (name, zone, household_size, ages, water, food, solar_power, batteries, shelter, is_critical, device_type, critical_resource, phone, address)
+select v.name, v.zone, v.household_size, v.ages, v.water, v.food, v.solar_power, v.batteries, v.shelter, v.is_critical, v.device_type, v.critical_resource, v.phone, v.address
 from (values
-  ('Kalo Family',          'efate',            3, array[42,39,68]::int[],  36::numeric,  48::numeric, 0::numeric,  0::numeric, 'sturdy',   true,  'Oxygen concentrator',      'power'),
-  ('Kalo Family',          'pentecost',        3, array[42,39,68]::int[],  72,           48,          1,           1,          'moderate', false, null,                        null),
-  ('Vira Solar Homestead', 'efate',            4, array[35,33,10,8]::int[], 120,          72,          4,           6,          'sturdy',   false, null,                        null),
-  ('Captain Melsul',       'espiritu-santo',   2, array[55,52]::int[],      48,           24,          1,           8,          'moderate', false, null,                        null),
-  ('Naomi Bong',           'espiritu-santo',   2, array[24,1]::int[],       12,           9.6,         0,           0,          'weak',     true,  'Infant formula',           'food'),
-  ('Iarkei Family',        'tanna',            3, array[45,44,16]::int[],   24,           24,          0.5,         0.5,        'weak',     true,  'Dialysis machine',         'water'),
-  ('Yasur View Lodge',     'tanna',            2, array[50,48]::int[],      144,          120,         3,           5,          'sturdy',   false, null,                        null),
-  ('Namaru Bakery',        'malekula',         3, array[40,38,15]::int[],   48,           192,         0,           10,         'sturdy',   false, null,                        null),
-  ('Bunlap Community',     'pentecost',        6, array[50,48,25,20,15,70]::int[], 24,    36,          0.5,         0.5,        'moderate', false, null,                        null)
-) as v(name, zone, household_size, ages, water, food, solar_power, batteries, shelter, is_critical, device_type, critical_resource)
+  ('Kalo Family',          'efate',            3, array[42,39,68]::int[],  36::numeric,  48::numeric, 0::numeric,  0::numeric, 'sturdy',   true,  'Oxygen concentrator',      'power', '+678 5923 141', '14 Kumul Highway, Port Vila, Efate'),
+  ('Kalo Family',          'pentecost',        3, array[42,39,68]::int[],  72,           48,          1,           1,          'moderate', false, null,                        null,    '+678 5923 141', '3 Melsisi Road, Pentecost'),
+  ('Vira Solar Homestead', 'efate',            4, array[35,33,10,8]::int[], 120,          72,          4,           6,          'sturdy',   false, null,                        null,    '+678 5788 226', '27 Rentapau Street, Port Vila, Efate'),
+  ('Captain Melsul',       'espiritu-santo',   2, array[55,52]::int[],      48,           24,          1,           8,          'moderate', false, null,                        null,    '+678 5661 904', '8 Wharf Road, Luganville, Espiritu Santo'),
+  ('Naomi Bong',           'espiritu-santo',   2, array[24,1]::int[],       12,           9.6,         0,           0,          'weak',     true,  'Infant formula',           'food',  '+678 5534 712', '45 Banyan Lane, Luganville, Espiritu Santo'),
+  ('Iarkei Family',        'tanna',            3, array[45,44,16]::int[],   24,           24,          0.5,         0.5,        'weak',     true,  'Dialysis machine',         'water', '+678 5447 268', '2 Yasur View Track, Lenakel, Tanna'),
+  ('Yasur View Lodge',     'tanna',            2, array[50,48]::int[],      144,          120,         3,           5,          'sturdy',   false, null,                        null,    '+678 5300 519', '1 Volcano Road, Port Resolution, Tanna'),
+  ('Namaru Bakery',        'malekula',         3, array[40,38,15]::int[],   48,           192,         0,           10,         'sturdy',   false, null,                        null,    '+678 5219 683', '19 Norsup Road, Lakatoro, Malekula'),
+  ('Bunlap Community',     'pentecost',        6, array[50,48,25,20,15,70]::int[], 24,    36,          0.5,         0.5,        'moderate', false, null,                        null,    '+678 5106 355', '1 Bunlap Village Path, Pentecost')
+) as v(name, zone, household_size, ages, water, food, solar_power, batteries, shelter, is_critical, device_type, critical_resource, phone, address)
 where not exists (select 1 from public.residents r where r.name = v.name and r.zone = v.zone);
 
 -- 3b. Transfers (audit trail of confirmed resource shares) ------------------

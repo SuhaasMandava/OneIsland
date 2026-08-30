@@ -384,6 +384,22 @@ section + section, .block + .block { margin-top: 16px; }
   border-radius: 50%;
   background: var(--reef);
 }
+.rec-contact {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: var(--radius-sm);
+  background: rgba(22, 126, 119, 0.08);
+  border: 1px solid var(--hairline);
+}
+.rec-contact-label { font-size: 0.72rem; font-weight: 700; color: var(--reef-dim); margin-bottom: 4px; }
+.rec-contact-phone {
+  display: block; font-family: 'JetBrains Mono', monospace; font-size: 0.95rem; font-weight: 700;
+  color: var(--reef); text-decoration: none;
+}
+.rec-contact-phone::before { content: "\260E  "; }
+.rec-contact-address { font-size: 0.76rem; color: var(--ink-dim); margin-top: 2px; }
+.rec-contact-missing { font-size: 0.76rem; color: var(--ink-faint); font-style: italic; }
+
 .rec-confirm-row {
   display: flex;
   justify-content: space-between;
@@ -548,6 +564,12 @@ section + section, .block + .block { margin-top: 16px; }
 .ticket-meta { padding: 7px 12px 0; font-size: 0.68rem; color: var(--ink-faint); display: flex; justify-content: space-between; gap: 8px; }
 .priority-tag { font-family: 'JetBrains Mono', monospace; }
 .ticket-reason { padding: 6px 12px 10px; font-size: 0.76rem; color: var(--ink-dim); }
+.ticket-contact {
+  padding: 6px 12px 10px; font-size: 0.78rem;
+  display: flex; align-items: baseline; gap: 6px; flex-wrap: wrap;
+}
+.ticket-contact-label { color: var(--ink-faint); font-size: 0.7rem; }
+.ticket-contact-phone { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--reef); text-decoration: none; }
 .ticket.receiver-CRITICAL .stamp { border-color: var(--critical); color: var(--critical); }
 .ticket.receiver-SHORTAGE .stamp { border-color: var(--shortage); color: var(--shortage); }
 

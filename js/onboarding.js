@@ -38,6 +38,7 @@ function defaultOnboardingState() {
     steps: ["welcome", "community", "name", "zones", "review"], // rebuilt once islands are picked
     community: "vanuatu",
     name: "",
+    phone: "",
     zones: [],
     properties: [], // one entry per zone, kept in sync with `zones`
     busy: false
@@ -52,6 +53,7 @@ function blankProperty(zoneId) {
     hasBattery: false, batteryKwh: 3,
     isCritical: false, deviceType: "", criticalResource: "power",
     waterDays: 3, foodDays: 3, shelter: "moderate",
+    address: "",
     existingPhotoUrl: null
   };
 }
@@ -65,6 +67,7 @@ function startOnboarding(existingRows) {
     onboarding.editing = true;
     onboarding.stepIndex = 2; // skip the welcome and (fixed, single-option) community screens when editing
     onboarding.name = rows[0].name || "";
+    onboarding.phone = rows[0].phone || "";
     onboarding.zones = rows.map(r => r.zone);
     onboarding.properties = rows.map(r => ({
       zone: r.zone,
@@ -77,6 +80,7 @@ function startOnboarding(existingRows) {
       waterDays: r.water != null ? Math.round((r.water / 24) * 10) / 10 : 3,
       foodDays: r.food != null ? Math.round((r.food / 24) * 10) / 10 : 3,
       shelter: r.shelter || "moderate",
+      address: r.address || "",
       existingPhotoUrl: r.photo_url || null
     }));
     onboarding.steps = buildStepSequence();
@@ -171,8 +175,11 @@ function propertyKicker() {
 function validateOnboardingStep() {
   switch (currentStepType()) {
     case "name":
-      return onboarding.name.trim().length > 0
-        ? { valid: true } : { valid: false, message: "Let us know what to call your household." };
+      if (onboarding.name.trim().length === 0) {
+        return { valid: false, message: "Let us know what to call your household." };
+      }
+      return onboarding.phone.trim().length > 0
+        ? { valid: true } : { valid: false, message: "Add a phone number — it's how a matched household reaches you to arrange a share." };
     case "zones":
       return onboarding.zones.length > 0
         ? { valid: true } : { valid: false, message: "Pick at least one island." };
@@ -193,8 +200,11 @@ function validateOnboardingStep() {
     }
     case "basics": {
       const p = currentProperty();
-      return (p.waterDays >= 0 && p.foodDays >= 0)
-        ? { valid: true } : { valid: false, message: "Enter a valid number of days." };
+      if (!(p.waterDays >= 0 && p.foodDays >= 0)) {
+        return { valid: false, message: "Enter a valid number of days." };
+      }
+      return p.address.trim().length > 0
+        ? { valid: true } : { valid: false, message: "Add this property's address so a matched household can find it." };
     }
     default:
       return { valid: true };
@@ -325,10 +335,15 @@ function wireCommunityStep() {
 function nameStepMarkup() {
   return `
     <label class="field-label">What should we call your household?</label>
-    <input type="text" class="field-input" id="onbName" placeholder="e.g. Kalo Family" value="${escapeAttr(onboarding.name)}">`;
+    <input type="text" class="field-input" id="onbName" placeholder="e.g. Kalo Family" value="${escapeAttr(onboarding.name)}">
+
+    <label class="field-label">Phone number</label>
+    <input type="tel" class="field-input" id="onbPhone" placeholder="e.g. +678 5923 141" value="${escapeAttr(onboarding.phone)}">
+    <p class="onb-hint">Shown only to a household you're matched with during a storm, so they can call you to arrange a share &mdash; there's no in-app "trade" button, since a real transfer needs a real phone call first.</p>`;
 }
 function wireNameStep() {
   document.getElementById("onbName").addEventListener("input", e => { onboarding.name = e.target.value; });
+  document.getElementById("onbPhone").addEventListener("input", e => { onboarding.phone = e.target.value; });
 }
 
 // ---- zones ----
@@ -538,7 +553,7 @@ function wireMedicalStep() {
   });
 }
 
-// ---- basics: water / food / shelter (per property) ----
+// ---- basics: water / food / shelter / address (per property) ----
 function basicsStepMarkup() {
   const p = currentProperty();
   const shelters = ["sturdy", "moderate", "weak"];
@@ -554,12 +569,17 @@ function basicsStepMarkup() {
     <input type="number" class="field-input" id="onbFoodDays" min="0" step="0.5" value="${p.foodDays}">
 
     <label class="field-label">How sturdy is the shelter there?</label>
-    <div class="chip-grid">${chips}</div>`;
+    <div class="chip-grid">${chips}</div>
+
+    <label class="field-label">What's this property's address?</label>
+    <input type="text" class="field-input" id="onbAddress" placeholder="e.g. 14 Kumul Highway, Port Vila" value="${escapeAttr(p.address)}">
+    <p class="onb-hint">Shown to a matched household so they know where to go.</p>`;
 }
 function wireBasicsStep() {
   const p = currentProperty();
   document.getElementById("onbWaterDays").addEventListener("input", e => { p.waterDays = Math.max(0, Number(e.target.value) || 0); });
   document.getElementById("onbFoodDays").addEventListener("input", e => { p.foodDays = Math.max(0, Number(e.target.value) || 0); });
+  document.getElementById("onbAddress").addEventListener("input", e => { p.address = e.target.value; });
   document.querySelectorAll(".chip-toggle[data-shelter]").forEach(btn => {
     btn.addEventListener("click", () => {
       p.shelter = btn.dataset.shelter;
@@ -574,7 +594,8 @@ function wireBasicsStep() {
 // ---- review ----
 function reviewStepMarkup() {
   const householdRows = [
-    ["Household", onboarding.name]
+    ["Household", onboarding.name],
+    ["Phone", onboarding.phone]
   ].map(([label, value]) => `<div class="review-row"><span>${label}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("");
 
   const propertyCards = onboarding.properties.map((p, i) => {
@@ -586,7 +607,8 @@ function reviewStepMarkup() {
       ["Critical need", p.isCritical ? p.deviceType : "None"],
       ["Water", `${p.waterDays} days`],
       ["Food", `${p.foodDays} days`],
-      ["Shelter", p.shelter[0].toUpperCase() + p.shelter.slice(1)]
+      ["Shelter", p.shelter[0].toUpperCase() + p.shelter.slice(1)],
+      ["Address", p.address]
     ].map(([label, value]) => `<div class="review-row"><span>${label}</span><strong>${escapeHtml(String(value))}</strong></div>`).join("");
 
     const preview = p.existingPhotoUrl
@@ -656,6 +678,7 @@ async function submitOnboarding() {
     // uploaded successfully.
     const propertyPayloads = onboarding.properties.map(p => ({
       name: onboarding.name.trim(),
+      phone: onboarding.phone.trim(),
       zone: p.zone,
       household_size: p.householdSize,
       ages: p.ages,
@@ -667,6 +690,7 @@ async function submitOnboarding() {
       is_critical: p.isCritical,
       device_type: p.isCritical ? (p.deviceType.trim() || null) : null,
       critical_resource: p.isCritical ? p.criticalResource : null,
+      address: p.address.trim(),
       photo_url: p.existingPhotoUrl
     }));
 
