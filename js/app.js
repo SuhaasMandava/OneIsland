@@ -485,6 +485,24 @@ async function retryLoadResidents() {
   recompute({ setStep: currentPipelineStep });
 }
 
+/**
+ * True if a resident row belongs to the signed-in user. The matching
+ * engine itself always runs against every resident on the island — it has
+ * to, to find the best real donor for a shortage — but nothing displayed
+ * to a signed-in user should show them a match, ticket, or contact detail
+ * (phone/address) for two OTHER households that don't involve them at all.
+ * "Bob's family -> Palash's family" is fine to show Palash; "John's family
+ * -> Bob's family" is not, even though the engine correctly computed it as
+ * the best match for John.
+ */
+function isMine(resident) {
+  return !!currentUser && !!resident && resident.userId === currentUser.id;
+}
+
+function involvesMe(match) {
+  return isMine(match.giver) || isMine(match.receiver);
+}
+
 /** Runs the engine for currentSeverity and re-renders every screen. */
 function recompute({ setStep }) {
   currentPipelineStep = setStep;
@@ -632,7 +650,7 @@ function renderOutlook() {
     : `<div class="outlook-peak">Forecast peaks at <strong>${SEVERITY_INFO[peak.severity].label}</strong> in about ${peak.hoursFromNow}h.</div>`;
 
   const projections = [];
-  RESIDENTS.forEach(resident => {
+  RESIDENTS.filter(isMine).forEach(resident => {
     RESOURCE_KEYS.forEach(resourceKey => {
       const currentRow = currentForecast.find(r => r.resident.id === resident.id && r.resourceKey === resourceKey);
       if (currentRow && currentRow.status === "CRITICAL") return; // already known — not a new projection
@@ -647,7 +665,7 @@ function renderOutlook() {
       <span class="activity-flow"><strong>${escapeHtml(p.resident.name)}</strong> &mdash; ${p.resourceKey}</span>
       <span class="activity-meta">Projected critical in ~${p.etaHours}h if the forecast holds</span>
     </div>
-  `).join("") || `<div class="ft-empty">No other households are projected to reach critical in the next 24h.</div>`;
+  `).join("") || `<div class="ft-empty">None of your properties are projected to reach critical in the next 24h.</div>`;
 
   container.innerHTML = peakLine + list;
 }
@@ -791,12 +809,17 @@ function renderRecommendations() {
     return;
   }
 
-  const pending = currentMatchResult.matches.filter(m => !handledMatchKeys.has(matchKey(m)));
+  // Only matches that actually involve one of MY properties, either as the
+  // one short (I need to call the donor) or the one with spare capacity
+  // (someone needs to call me / I should reach out) — never a match
+  // between two other households that has nothing to do with me.
+  const myMatches = currentMatchResult.matches.filter(involvesMe);
+  const pending = myMatches.filter(m => !handledMatchKeys.has(matchKey(m)));
 
   if (pending.length === 0) {
-    recsList.innerHTML = currentMatchResult.matches.length
-      ? `<div class="ft-empty">All recommended contacts for this scenario have been handled.</div>`
-      : `<div class="ft-empty">No shortages detected at this severity &mdash; every household is self-sufficient.</div>`;
+    recsList.innerHTML = myMatches.length
+      ? `<div class="ft-empty">All your recommended contacts for this scenario have been handled.</div>`
+      : `<div class="ft-empty">No shortages involving your properties at this severity &mdash; you're self-sufficient right now.</div>`;
     return;
   }
 
@@ -806,14 +829,27 @@ function renderRecommendations() {
     const receiverBefore = residentHours(m.receiver, m.resourceKey);
     const giverAfter = Math.max(0, Math.round((giverBefore - m.amountHours) * 10) / 10);
     const receiverAfter = Math.round((receiverBefore + m.amountHours) * 10) / 10;
+
+    // Always show the OTHER party's contact info — if I'm the one short,
+    // that's the donor I need to call; if I'm the donor, that's the
+    // household I should reach out to. Never show my own number back to me.
+    const iAmReceiver = isMine(m.receiver);
+    const counterparty = iAmReceiver ? m.giver : m.receiver;
+    const headline = iAmReceiver
+      ? `You need ${formatResourceAmount(m.resourceKey, m.amountHours)} of ${m.resourceKey}.`
+      : `<strong>${escapeHtml(m.receiver.name)}</strong> needs ${formatResourceAmount(m.resourceKey, m.amountHours)} of ${m.resourceKey} &mdash; you have spare capacity.`;
+    const contactLabel = iAmReceiver
+      ? `Call ${escapeHtml(counterparty.name)} to arrange it`
+      : `Call ${escapeHtml(counterparty.name)} to offer it`;
+
     return `
       <div class="rec-card" data-key="${key}">
         <div class="ft-kicker">${m.receiverStatus === "CRITICAL" ? "Critical" : "Shortage"} &middot; ${m.resourceKey}</div>
-        <div class="rec-question"><strong>${escapeHtml(m.receiver.name)}</strong> needs ${formatResourceAmount(m.resourceKey, m.amountHours)} of ${m.resourceKey}.</div>
+        <div class="rec-question">${headline}</div>
 
         <div class="rec-contact">
-          <div class="rec-contact-label">Call ${escapeHtml(m.giver.name)} to arrange it</div>
-          ${contactBlock(m.giver)}
+          <div class="rec-contact-label">${contactLabel}</div>
+          ${contactBlock(counterparty)}
         </div>
 
         <div class="rec-confirm-row">
@@ -869,20 +905,29 @@ function renderStormScreen(activeStepIndex) {
     }
   });
 
+  // Every tile and list on this screen is scoped to MY properties — this is
+  // a signed-in user's personal dashboard, not an island-wide admin view,
+  // so the pipeline "outcome" it shows has to be the outcome for them.
+  const myForecast = currentForecast.filter(r => isMine(r.resident));
+  const myMatches = currentMatchResult.matches.filter(involvesMe);
+  const myUnresolved = currentMatchResult.unresolved.filter(u => isMine(u.resident));
+
   document.getElementById("outcomeStrip").innerHTML = `
-    <div class="o-tile"><div class="o-value mono">${currentMatchResult.matches.length}</div><div class="o-label">Matched</div></div>
-    <div class="o-tile"><div class="o-value mono">${currentForecast.filter(r => r.status === "CRITICAL").length}</div><div class="o-label">Critical</div></div>
-    <div class="o-tile"><div class="o-value mono">${currentMatchResult.unresolved.length}</div><div class="o-label">Unresolved</div></div>
+    <div class="o-tile"><div class="o-value mono">${myMatches.length}</div><div class="o-label">Matched</div></div>
+    <div class="o-tile"><div class="o-value mono">${myForecast.filter(r => r.status === "CRITICAL").length}</div><div class="o-label">Critical</div></div>
+    <div class="o-tile"><div class="o-value mono">${myUnresolved.length}</div><div class="o-label">Unresolved</div></div>
   `;
 
-  renderMatches();
+  renderMatches(myMatches, myUnresolved);
 }
 
-function renderMatches() {
-  const { matches, unresolved } = currentMatchResult;
-
+function renderMatches(matches, unresolved) {
   document.getElementById("matchesList").innerHTML = matches.length
-    ? matches.map(m => `
+    ? matches.map(m => {
+      // Same counterparty logic as the Console cards: show whoever I'm NOT,
+      // never my own contact info reflected back at me.
+      const counterparty = isMine(m.receiver) ? m.giver : m.receiver;
+      return `
       <div class="ticket receiver-${m.receiverStatus}">
         <div class="ticket-top">
           <div class="ticket-flow">
@@ -898,24 +943,25 @@ function renderMatches() {
             <span class="priority-tag">P${m.priorityScore}</span>
           </div>
           <div class="ticket-contact">
-            <span class="ticket-contact-label">Contact ${escapeHtml(m.giver.name)}:</span>
-            ${m.giver.phone
-              ? `<a class="ticket-contact-phone" href="${telHref(m.giver.phone)}">${escapeHtml(m.giver.phone)}</a>`
+            <span class="ticket-contact-label">Contact ${escapeHtml(counterparty.name)}:</span>
+            ${counterparty.phone
+              ? `<a class="ticket-contact-phone" href="${telHref(counterparty.phone)}">${escapeHtml(counterparty.phone)}</a>`
               : `<span class="rec-contact-missing">No phone on file</span>`}
           </div>
         </div>
       </div>
-    `).join("")
+    `;
+    }).join("")
     : unresolved.length > 0
-      ? `<div class="zone-hint">No matches were possible at this severity &mdash; every shortage below needs outside aid.</div>`
-      : `<div class="zone-hint">No shortages detected yet at this severity level.</div>`;
+      ? `<div class="zone-hint">No matches were possible for your properties at this severity &mdash; your shortage below needs outside aid.</div>`
+      : `<div class="zone-hint">No shortages involving your properties at this severity level.</div>`;
 
   const unresolvedHeading = document.getElementById("unresolvedHeading");
   unresolvedHeading.classList.toggle("hidden", unresolved.length === 0);
 
   document.getElementById("unresolvedList").innerHTML = unresolved.map(u => `
     <div class="unresolved-ticket">
-      <strong>${u.resident.name}</strong> &mdash; ${u.status.toLowerCase()} ${u.resourceKey} shortage
+      <strong>${escapeHtml(u.resident.name)}</strong> &mdash; ${u.status.toLowerCase()} ${u.resourceKey} shortage
       (${formatResourceAmount(u.resourceKey, u.hours)} left, priority ${u.priorityScore}). No island donor has spare capacity.
     </div>
   `).join("");
